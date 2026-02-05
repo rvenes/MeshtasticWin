@@ -4,13 +4,16 @@ using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using Microsoft.Web.WebView2.Core;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Windows.ApplicationModel;
+using Windows.System;
 
 namespace MeshtasticWin.Pages;
 
@@ -20,11 +23,32 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     public ObservableCollection<NodeLive> FilteredNodesView { get; } = new();
 
-    private int _hideOlderThanDays = 90; // default: 3 månader
+    private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
     private string _filter = "";
     private readonly DispatcherTimer _throttle = new();
     private bool _mapReady;
+    private readonly DispatcherTimer _traceRouteTimer = new();
+    private int _traceRouteRemainingSeconds;
+    private bool _traceRouteCooldownActive;
+    private readonly DispatcherTimer _logPollTimer = new();
+
+    private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastLogWriteByNode = new();
+    private readonly Dictionary<string, HashSet<LogKind>> _pendingLogIndicatorsByNode = new();
+
+    private bool _deviceMetricsTabIndicator;
+    private bool _positionTabIndicator;
+    private bool _traceRouteTabIndicator;
+    private bool _powerMetricsTabIndicator;
+    private bool _detectionSensorTabIndicator;
+
+    private string _deviceMetricsLogText = "No log entries yet.";
+    private string _traceRouteLogText = "No log entries yet.";
+    private string _powerMetricsLogText = "No log entries yet.";
+    private string _detectionSensorLogText = "No log entries yet.";
+
+    internal ObservableCollection<PositionLogEntry> PositionLogEntries { get; } = new();
+    private PositionLogEntry? _selectedPositionEntry;
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -43,6 +67,16 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedLastHeardText));
             OnChanged(nameof(SelectedPosText));
             OnChanged(nameof(SelectedExtraText));
+            OnChanged(nameof(IsTraceRouteEnabled));
+            OnChanged(nameof(TraceRouteButtonText));
+
+            if (_selected is not null)
+            {
+                _selected.HasLogIndicator = false;
+                ApplyPendingIndicatorsForSelectedNode();
+                RefreshSelectedNodeLogs();
+                DetailsTabs.SelectedIndex = 0;
+            }
 
             _ = PushSelectionToMapAsync();
         }
@@ -50,20 +84,79 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     public bool HasSelection => Selected is not null;
 
-    public string SelectedTitle => Selected?.Name ?? "Vel ein node";
+    public string SelectedTitle => Selected?.Name ?? "Select a node";
     public string SelectedIdHex => Selected?.IdHex ?? "—";
     public string SelectedNodeNumText => Selected is null ? "—" : $"nodeNum: {Selected.NodeNum}";
-    public string SelectedLastHeardText => Selected is null ? "—" : $"lastHeard: {Selected.LastHeard}";
+    public string SelectedLastHeardText => Selected is null ? "—" : $"last heard: {Selected.LastHeard}";
     public string SelectedPosText
     {
         get
         {
-            if (Selected is null) return "pos: —";
-            if (!Selected.HasPosition) return "pos: —";
-            return $"pos: {Selected.Latitude:0.000000},{Selected.Longitude:0.000000} ({Selected.LastPositionText})";
+            if (Selected is null) return "position: —";
+            if (!Selected.HasPosition) return "position: —";
+            return $"position: {Selected.Latitude:0.000000},{Selected.Longitude:0.000000} ({Selected.LastPositionText})";
         }
     }
-    public string SelectedExtraText => Selected is null ? "" : $"LongName: {Selected.LongName}   ShortName: {Selected.ShortName}";
+    public string SelectedExtraText => Selected is null ? "" : $"Long name: {Selected.LongName}   Short name: {Selected.ShortName}";
+
+    public bool IsTraceRouteEnabled => HasSelection && !_traceRouteCooldownActive;
+
+    public string TraceRouteButtonText =>
+        _traceRouteCooldownActive
+            ? $"Trace Route ({_traceRouteRemainingSeconds}s)"
+            : "Trace Route";
+
+    public string DeviceMetricsLogText
+    {
+        get => _deviceMetricsLogText;
+        private set
+        {
+            if (_deviceMetricsLogText == value) return;
+            _deviceMetricsLogText = value;
+            OnChanged(nameof(DeviceMetricsLogText));
+        }
+    }
+
+    public string TraceRouteLogText
+    {
+        get => _traceRouteLogText;
+        private set
+        {
+            if (_traceRouteLogText == value) return;
+            _traceRouteLogText = value;
+            OnChanged(nameof(TraceRouteLogText));
+        }
+    }
+
+    public string PowerMetricsLogText
+    {
+        get => _powerMetricsLogText;
+        private set
+        {
+            if (_powerMetricsLogText == value) return;
+            _powerMetricsLogText = value;
+            OnChanged(nameof(PowerMetricsLogText));
+        }
+    }
+
+    public string DetectionSensorLogText
+    {
+        get => _detectionSensorLogText;
+        private set
+        {
+            if (_detectionSensorLogText == value) return;
+            _detectionSensorLogText = value;
+            OnChanged(nameof(DetectionSensorLogText));
+        }
+    }
+
+    public bool HasPositionSelection => _selectedPositionEntry is not null;
+
+    public Visibility DeviceMetricsTabIndicatorVisibility => _deviceMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PositionTabIndicatorVisibility => _positionTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TraceRouteTabIndicatorVisibility => _traceRouteTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PowerMetricsTabIndicatorVisibility => _powerMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DetectionSensorTabIndicatorVisibility => _detectionSensorTabIndicator ? Visibility.Visible : Visibility.Collapsed;
 
     public string NodeCountsText
     {
@@ -99,6 +192,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _throttle.Interval = TimeSpan.FromMilliseconds(350);
         _throttle.Tick += (_, __) => { _throttle.Stop(); _ = PushAllNodesToMapAsync(); };
 
+        _traceRouteTimer.Interval = TimeSpan.FromSeconds(1);
+        _traceRouteTimer.Tick += (_, __) => TraceRouteCooldownTick();
+
+        _logPollTimer.Interval = TimeSpan.FromSeconds(2);
+        _logPollTimer.Tick += (_, __) => PollLogs();
+
         Loaded += NodesPage_Loaded;
         Unloaded += NodesPage_Unloaded;
     }
@@ -108,6 +207,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MeshtasticWin.AppState.Nodes.CollectionChanged -= Nodes_CollectionChanged;
         foreach (var n in MeshtasticWin.AppState.Nodes)
             n.PropertyChanged -= Node_PropertyChanged;
+
+        _logPollTimer.Stop();
     }
 
     private async void NodesPage_Loaded(object sender, RoutedEventArgs e)
@@ -115,6 +216,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         await EnsureMapAsync();
         await PushAllNodesToMapAsync();
         await PushSelectionToMapAsync();
+        _logPollTimer.Start();
     }
 
     private async System.Threading.Tasks.Task EnsureMapAsync()
@@ -387,6 +489,501 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MeshtasticWin.AppState.SetActiveChatPeer(Selected.IdHex);
         App.MainWindowInstance?.NavigateTo("messages");
     }
+
+    private async void ExchangeUserInfo_Click(object sender, RoutedEventArgs _)
+        => await SendRequestAsync("Exchange User Info", async nodeNum =>
+            await RadioClient.Instance.SendNodeInfoRequestAsync(nodeNum));
+
+    private async void ExchangePositions_Click(object sender, RoutedEventArgs _)
+        => await SendRequestAsync("Exchange Positions", async nodeNum =>
+            await RadioClient.Instance.SendPositionRequestAsync(nodeNum));
+
+    private async void TraceRoute_Click(object sender, RoutedEventArgs _)
+        => await SendTraceRouteAsync();
+
+    private void DetailsTabs_SelectionChanged(object sender, SelectionChangedEventArgs _)
+    {
+        if (DetailsTabs.SelectedIndex < 0) return;
+
+        var logKind = TabIndexToLogKind(DetailsTabs.SelectedIndex);
+        if (logKind is null) return;
+
+        ClearTabIndicator(logKind.Value);
+        if (Selected is not null)
+            ClearPendingIndicator(Selected.IdHex, logKind.Value);
+
+        RefreshSelectedNodeLogs();
+    }
+
+    private void PositionLogList_SelectionChanged(object sender, SelectionChangedEventArgs _)
+    {
+        _selectedPositionEntry = PositionLogList.SelectedItem as PositionLogEntry;
+        OnChanged(nameof(HasPositionSelection));
+
+        if (_selectedPositionEntry is not null)
+        {
+            DetailsTabs.SelectedIndex = 0;
+            ShowPositionOnMap(_selectedPositionEntry.Lat, _selectedPositionEntry.Lon);
+        }
+    }
+
+    private async void OpenMaps_Click(object sender, RoutedEventArgs _)
+    {
+        if (_selectedPositionEntry is null) return;
+        var lat = _selectedPositionEntry.Lat.ToString("0.0000000", CultureInfo.InvariantCulture);
+        var lon = _selectedPositionEntry.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
+        var uri = new Uri($"https://www.google.com/maps/search/?api=1&query={lat},{lon}");
+        await Launcher.LaunchUriAsync(uri);
+    }
+
+    private void ApplyPendingIndicatorsForSelectedNode()
+    {
+        if (Selected is null)
+            return;
+
+        ClearAllTabIndicators();
+
+        if (_pendingLogIndicatorsByNode.TryGetValue(Selected.IdHex, out var pending))
+        {
+            foreach (var kind in pending)
+                SetTabIndicator(kind, true);
+        }
+    }
+
+    private void RefreshSelectedNodeLogs()
+    {
+        if (Selected is null)
+            return;
+
+        DeviceMetricsLogText = ReadLogText(LogKind.DeviceMetrics);
+        TraceRouteLogText = ReadLogText(LogKind.TraceRoute);
+        PowerMetricsLogText = ReadLogText(LogKind.PowerMetrics);
+        DetectionSensorLogText = ReadLogText(LogKind.DetectionSensor);
+
+        var positionEntries = ReadPositionEntries();
+        PositionLogEntries.Clear();
+        foreach (var entry in positionEntries)
+            PositionLogEntries.Add(entry);
+
+        _selectedPositionEntry = null;
+        OnChanged(nameof(HasPositionSelection));
+    }
+
+    private void PollLogs()
+    {
+        foreach (var node in MeshtasticWin.AppState.Nodes)
+        {
+            if (node.IdHex is null) continue;
+
+            foreach (var kind in AllLogKinds)
+            {
+                var newWriteTime = GetLogLastWriteTimeUtc(node.IdHex, kind);
+                var lastWriteTime = GetLastLogWriteTime(node.IdHex, kind);
+
+                if (newWriteTime == DateTime.MinValue)
+                    continue;
+
+                if (newWriteTime > lastWriteTime)
+                {
+                    SetLastLogWriteTime(node.IdHex, kind, newWriteTime);
+                    HandleNewLog(node, kind);
+                }
+            }
+        }
+    }
+
+    private void HandleNewLog(NodeLive node, LogKind kind)
+    {
+        if (Selected is null || !string.Equals(node.IdHex, Selected.IdHex, StringComparison.OrdinalIgnoreCase))
+        {
+            node.HasLogIndicator = true;
+            AddPendingIndicator(node.IdHex, kind);
+            return;
+        }
+
+        if (!IsTabSelectedForLog(kind))
+        {
+            SetTabIndicator(kind, true);
+            AddPendingIndicator(node.IdHex, kind);
+        }
+
+        RefreshSelectedNodeLogs();
+    }
+
+    private bool IsTabSelectedForLog(LogKind kind)
+        => TabIndexToLogKind(DetailsTabs.SelectedIndex) == kind;
+
+    private void AddPendingIndicator(string nodeId, LogKind kind)
+    {
+        if (!_pendingLogIndicatorsByNode.TryGetValue(nodeId, out var set))
+        {
+            set = new HashSet<LogKind>();
+            _pendingLogIndicatorsByNode[nodeId] = set;
+        }
+
+        set.Add(kind);
+    }
+
+    private void ClearPendingIndicator(string nodeId, LogKind kind)
+    {
+        if (!_pendingLogIndicatorsByNode.TryGetValue(nodeId, out var set))
+            return;
+
+        set.Remove(kind);
+        if (set.Count == 0)
+            _pendingLogIndicatorsByNode.Remove(nodeId);
+    }
+
+    private void ClearAllTabIndicators()
+    {
+        SetTabIndicator(LogKind.DeviceMetrics, false);
+        SetTabIndicator(LogKind.Position, false);
+        SetTabIndicator(LogKind.TraceRoute, false);
+        SetTabIndicator(LogKind.PowerMetrics, false);
+        SetTabIndicator(LogKind.DetectionSensor, false);
+    }
+
+    private void SetTabIndicator(LogKind kind, bool value)
+    {
+        switch (kind)
+        {
+            case LogKind.DeviceMetrics:
+                if (_deviceMetricsTabIndicator == value) return;
+                _deviceMetricsTabIndicator = value;
+                OnChanged(nameof(DeviceMetricsTabIndicatorVisibility));
+                break;
+            case LogKind.Position:
+                if (_positionTabIndicator == value) return;
+                _positionTabIndicator = value;
+                OnChanged(nameof(PositionTabIndicatorVisibility));
+                break;
+            case LogKind.TraceRoute:
+                if (_traceRouteTabIndicator == value) return;
+                _traceRouteTabIndicator = value;
+                OnChanged(nameof(TraceRouteTabIndicatorVisibility));
+                break;
+            case LogKind.PowerMetrics:
+                if (_powerMetricsTabIndicator == value) return;
+                _powerMetricsTabIndicator = value;
+                OnChanged(nameof(PowerMetricsTabIndicatorVisibility));
+                break;
+            case LogKind.DetectionSensor:
+                if (_detectionSensorTabIndicator == value) return;
+                _detectionSensorTabIndicator = value;
+                OnChanged(nameof(DetectionSensorTabIndicatorVisibility));
+                break;
+        }
+    }
+
+    private void ClearTabIndicator(LogKind kind)
+        => SetTabIndicator(kind, false);
+
+    private string ReadLogText(LogKind kind)
+    {
+        if (Selected is null)
+            return "No log entries yet.";
+
+        var lines = NodeLogArchive.ReadTail(ToArchiveType(kind), Selected.IdHex, maxLines: 400);
+        if (lines.Length == 0)
+            return "No log entries yet.";
+
+        if (kind == LogKind.TraceRoute)
+            return string.Join(Environment.NewLine, lines.Select(FormatTraceRouteLine));
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private List<PositionLogEntry> ReadPositionEntries()
+    {
+        if (Selected is null)
+            return new List<PositionLogEntry>();
+
+        return GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000)
+            .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
+            .Select(PositionLogEntry.FromPoint)
+            .ToList();
+    }
+
+    private DateTime GetLastLogWriteTime(string nodeId, LogKind kind)
+    {
+        if (_lastLogWriteByNode.TryGetValue(nodeId, out var map) && map.TryGetValue(kind, out var ts))
+            return ts;
+        return DateTime.MinValue;
+    }
+
+    private void SetLastLogWriteTime(string nodeId, LogKind kind, DateTime timestampUtc)
+    {
+        if (!_lastLogWriteByNode.TryGetValue(nodeId, out var map))
+        {
+            map = new Dictionary<LogKind, DateTime>();
+            _lastLogWriteByNode[nodeId] = map;
+        }
+
+        map[kind] = timestampUtc;
+    }
+
+    private DateTime GetLogLastWriteTimeUtc(string nodeId, LogKind kind)
+    {
+        var path = GetLogFilePath(nodeId, kind);
+        return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+    }
+
+    private static string GetLogFilePath(string nodeId, LogKind kind)
+    {
+        var safe = SanitizeNodeId(nodeId);
+        var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MeshtasticWin", "Logs");
+
+        return kind switch
+        {
+            LogKind.DeviceMetrics => Path.Combine(baseDir, "device_metrics", $"0x{safe}.log"),
+            LogKind.TraceRoute => Path.Combine(baseDir, "traceroute", $"0x{safe}.log"),
+            LogKind.PowerMetrics => Path.Combine(baseDir, "power_metrics", $"0x{safe}.log"),
+            LogKind.DetectionSensor => Path.Combine(baseDir, "detection_sensor", $"0x{safe}.log"),
+            LogKind.Position => Path.Combine(baseDir, "gps", $"0x{safe}.log"),
+            _ => Path.Combine(baseDir, "unknown", $"0x{safe}.log")
+        };
+    }
+
+    private static string SanitizeNodeId(string idHex)
+    {
+        var safe = (idHex ?? "").Trim();
+        if (safe.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            safe = safe[2..];
+
+        safe = new string(safe.Where(char.IsLetterOrDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(safe))
+            safe = "UNKNOWN";
+
+        return safe.ToUpperInvariant();
+    }
+
+    private static LogKind? TabIndexToLogKind(int index)
+        => index switch
+        {
+            1 => LogKind.DeviceMetrics,
+            2 => LogKind.Position,
+            3 => LogKind.TraceRoute,
+            4 => LogKind.PowerMetrics,
+            5 => LogKind.DetectionSensor,
+            _ => null
+        };
+
+    private async System.Threading.Tasks.Task SendRequestAsync(string actionName, Func<uint, System.Threading.Tasks.Task<uint>> action)
+    {
+        if (Selected is null) return;
+        if (Selected.NodeNum == 0)
+        {
+            await ShowStatusAsync($"{actionName}: nodeNum is missing.");
+            return;
+        }
+
+        try
+        {
+            var packetId = await action((uint)Selected.NodeNum);
+            RadioClient.Instance.AddLogFromUiThread($"{actionName} sent to {Selected.Name} (packetId=0x{packetId:x8}).");
+            await ShowStatusAsync($"{actionName} sent to {Selected.Name}.");
+        }
+        catch (Exception ex)
+        {
+            await ShowStatusAsync($"{actionName} failed: {ex.Message}");
+        }
+    }
+
+    private async System.Threading.Tasks.Task ShowStatusAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "MeshtasticWin",
+            PrimaryButtonText = "Close",
+            XamlRoot = XamlRoot,
+            Content = message
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private async System.Threading.Tasks.Task SendTraceRouteAsync()
+    {
+        if (Selected is null) return;
+        if (_traceRouteCooldownActive) return;
+        if (Selected.NodeNum == 0)
+        {
+            RadioClient.Instance.AddLogFromUiThread("Trace Route failed: nodeNum is missing.");
+            return;
+        }
+
+        try
+        {
+            var packetId = await RadioClient.Instance.SendTraceRouteRequestAsync((uint)Selected.NodeNum);
+            RadioClient.Instance.AddLogFromUiThread($"Trace Route sent to {Selected.Name} (packetId=0x{packetId:x8}).");
+            StartTraceRouteCooldown();
+        }
+        catch (Exception ex)
+        {
+            RadioClient.Instance.AddLogFromUiThread($"Trace Route failed: {ex.Message}");
+        }
+    }
+
+    private void StartTraceRouteCooldown()
+    {
+        _traceRouteCooldownActive = true;
+        _traceRouteRemainingSeconds = 30;
+        OnChanged(nameof(IsTraceRouteEnabled));
+        OnChanged(nameof(TraceRouteButtonText));
+        _traceRouteTimer.Start();
+    }
+
+    private void TraceRouteCooldownTick()
+    {
+        if (!_traceRouteCooldownActive) return;
+
+        _traceRouteRemainingSeconds = Math.Max(0, _traceRouteRemainingSeconds - 1);
+        OnChanged(nameof(TraceRouteButtonText));
+
+        if (_traceRouteRemainingSeconds == 0)
+        {
+            _traceRouteCooldownActive = false;
+            _traceRouteTimer.Stop();
+            OnChanged(nameof(IsTraceRouteEnabled));
+            OnChanged(nameof(TraceRouteButtonText));
+        }
+    }
+
+    private void ShowPositionOnMap(double lat, double lon)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        var payload = new { type = "positionPeek", lat, lon };
+        MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
+    }
+
+    internal sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string DisplayText)
+    {
+        public static PositionLogEntry FromPoint(GpsArchive.PositionPoint point)
+        {
+            var altText = point.Alt.HasValue
+                ? $" alt={point.Alt.Value.ToString("0.##", CultureInfo.InvariantCulture)}"
+                : "";
+            var lat = point.Lat.ToString("0.0000000", CultureInfo.InvariantCulture);
+            var lon = point.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
+            var tsLocal = point.TsUtc.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture);
+            var display = $"{tsLocal} | {lat}, {lon}{altText}";
+            return new PositionLogEntry(point.TsUtc, point.Lat, point.Lon, point.Alt, display);
+        }
+    }
+
+    private static string FormatTraceRouteLine(string rawLine)
+    {
+        var parts = rawLine.Split(new[] { " | " }, 2, StringSplitOptions.None);
+        var tsPart = parts.Length > 0 ? parts[0] : "";
+        var summary = parts.Length > 1 ? parts[1] : "";
+
+        var timestamp = TryParseTimestamp(tsPart);
+        var tsText = timestamp?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? tsPart;
+
+        var parsed = ParseTraceRouteSummary(summary);
+        var hopPath = parsed.Route.Count > 0 ? parsed.Route : parsed.RouteBack;
+        var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveNodeName) : Array.Empty<string>();
+        var hopCount = hopPath.Count;
+
+        var toSnr = parsed.SnrTowards.Count > 0 ? parsed.SnrTowards[^1].ToString(CultureInfo.InvariantCulture) : "—";
+        var backSnr = parsed.SnrBack.Count > 0 ? parsed.SnrBack[^1].ToString(CultureInfo.InvariantCulture) : "—";
+
+        var pathText = hopNames.Any() ? string.Join(" -> ", hopNames) : "—";
+
+        return $"{tsText} | hops={hopCount} | toSNR={toSnr} backSNR={backSnr} | path: {pathText}";
+    }
+
+    private static DateTimeOffset? TryParseTimestamp(string value)
+    {
+        if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            return parsed;
+        return null;
+    }
+
+    private static TraceRouteParsed ParseTraceRouteSummary(string summary)
+    {
+        var route = new List<uint>();
+        var snrTowards = new List<int>();
+        var routeBack = new List<uint>();
+        var snrBack = new List<int>();
+
+        var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var currentLabel = "";
+
+        foreach (var token in tokens)
+        {
+            if (token.EndsWith(":", StringComparison.Ordinal))
+            {
+                currentLabel = token;
+                continue;
+            }
+
+            switch (currentLabel)
+            {
+                case "route:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var routeNum))
+                        route.Add(routeNum);
+                    break;
+                case "snr_towards:":
+                    if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrTo))
+                        snrTowards.Add(snrTo);
+                    break;
+                case "route_back:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var routeBackNum))
+                        routeBack.Add(routeBackNum);
+                    break;
+                case "snr_back:":
+                    if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrBk))
+                        snrBack.Add(snrBk);
+                    break;
+            }
+        }
+
+        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack);
+    }
+
+    private static string ResolveNodeName(uint nodeNum)
+    {
+        var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.NodeNum == nodeNum);
+        if (node is not null)
+            return node.Name;
+
+        return $"0x{nodeNum:x8}";
+    }
+
+    private readonly record struct TraceRouteParsed(
+        List<uint> Route,
+        List<int> SnrTowards,
+        List<uint> RouteBack,
+        List<int> SnrBack);
+
+    private enum LogKind
+    {
+        DeviceMetrics,
+        Position,
+        TraceRoute,
+        PowerMetrics,
+        DetectionSensor
+    }
+
+    private static readonly LogKind[] AllLogKinds =
+    {
+        LogKind.DeviceMetrics,
+        LogKind.Position,
+        LogKind.TraceRoute,
+        LogKind.PowerMetrics,
+        LogKind.DetectionSensor
+    };
+
+    private static NodeLogType ToArchiveType(LogKind kind)
+        => kind switch
+        {
+            LogKind.DeviceMetrics => NodeLogType.DeviceMetrics,
+            LogKind.TraceRoute => NodeLogType.TraceRoute,
+            LogKind.PowerMetrics => NodeLogType.PowerMetrics,
+            LogKind.DetectionSensor => NodeLogType.DetectionSensor,
+            _ => NodeLogType.DeviceMetrics
+        };
 
     private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
