@@ -522,7 +522,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         OnChanged(nameof(HasPositionSelection));
 
         if (_selectedPositionEntry is not null)
+        {
+            DetailsTabs.SelectedIndex = 0;
             ShowPositionOnMap(_selectedPositionEntry.Lat, _selectedPositionEntry.Lon);
+        }
     }
 
     private async void OpenMaps_Click(object sender, RoutedEventArgs _)
@@ -682,7 +685,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return "No log entries yet.";
 
         var lines = NodeLogArchive.ReadTail(ToArchiveType(kind), Selected.IdHex, maxLines: 400);
-        return lines.Length == 0 ? "No log entries yet." : string.Join(Environment.NewLine, lines);
+        if (lines.Length == 0)
+            return "No log entries yet.";
+
+        if (kind == LogKind.TraceRoute)
+            return string.Join(Environment.NewLine, lines.Select(FormatTraceRouteLine));
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private List<PositionLogEntry> ReadPositionEntries()
@@ -857,10 +866,97 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 : "";
             var lat = point.Lat.ToString("0.0000000", CultureInfo.InvariantCulture);
             var lon = point.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
-            var display = $"{point.TsUtc:O} | {lat},{lon}{altText}";
+            var tsLocal = point.TsUtc.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture);
+            var display = $"{tsLocal} | {lat}, {lon}{altText}";
             return new PositionLogEntry(point.TsUtc, point.Lat, point.Lon, point.Alt, display);
         }
     }
+
+    private static string FormatTraceRouteLine(string rawLine)
+    {
+        var parts = rawLine.Split(new[] { " | " }, 2, StringSplitOptions.None);
+        var tsPart = parts.Length > 0 ? parts[0] : "";
+        var summary = parts.Length > 1 ? parts[1] : "";
+
+        var timestamp = TryParseTimestamp(tsPart);
+        var tsText = timestamp?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? tsPart;
+
+        var parsed = ParseTraceRouteSummary(summary);
+        var hopPath = parsed.Route.Count > 0 ? parsed.Route : parsed.RouteBack;
+        var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveNodeName) : Array.Empty<string>();
+        var hopCount = hopPath.Count;
+
+        var toSnr = parsed.SnrTowards.Count > 0 ? parsed.SnrTowards[^1].ToString(CultureInfo.InvariantCulture) : "—";
+        var backSnr = parsed.SnrBack.Count > 0 ? parsed.SnrBack[^1].ToString(CultureInfo.InvariantCulture) : "—";
+
+        var pathText = hopNames.Any() ? string.Join(" -> ", hopNames) : "—";
+
+        return $"{tsText} | hops={hopCount} | toSNR={toSnr} backSNR={backSnr} | path: {pathText}";
+    }
+
+    private static DateTimeOffset? TryParseTimestamp(string value)
+    {
+        if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            return parsed;
+        return null;
+    }
+
+    private static TraceRouteParsed ParseTraceRouteSummary(string summary)
+    {
+        var route = new List<uint>();
+        var snrTowards = new List<int>();
+        var routeBack = new List<uint>();
+        var snrBack = new List<int>();
+
+        var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var currentLabel = "";
+
+        foreach (var token in tokens)
+        {
+            if (token.EndsWith(":", StringComparison.Ordinal))
+            {
+                currentLabel = token;
+                continue;
+            }
+
+            switch (currentLabel)
+            {
+                case "route:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var routeNum))
+                        route.Add(routeNum);
+                    break;
+                case "snr_towards:":
+                    if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrTo))
+                        snrTowards.Add(snrTo);
+                    break;
+                case "route_back:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var routeBackNum))
+                        routeBack.Add(routeBackNum);
+                    break;
+                case "snr_back:":
+                    if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrBk))
+                        snrBack.Add(snrBk);
+                    break;
+            }
+        }
+
+        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack);
+    }
+
+    private static string ResolveNodeName(uint nodeNum)
+    {
+        var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.NodeNum == nodeNum);
+        if (node is not null)
+            return node.Name;
+
+        return $"0x{nodeNum:x8}";
+    }
+
+    private readonly record struct TraceRouteParsed(
+        List<uint> Route,
+        List<int> SnrTowards,
+        List<uint> RouteBack,
+        List<int> SnrBack);
 
     private enum LogKind
     {
