@@ -137,6 +137,39 @@ public sealed class RadioClient
         return packetId;
     }
 
+    public async System.Threading.Tasks.Task<uint> SendNodeInfoRequestAsync(uint toNodeNum)
+    {
+        if (!IsConnected || _transport is null)
+            throw new InvalidOperationException("Not connected");
+
+        var msg = ToRadioFactory.CreateNodeInfoRequest(toNodeNum, out var packetId);
+        var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
+        await _transport.SendAsync(framed);
+        return packetId;
+    }
+
+    public async System.Threading.Tasks.Task<uint> SendPositionRequestAsync(uint toNodeNum)
+    {
+        if (!IsConnected || _transport is null)
+            throw new InvalidOperationException("Not connected");
+
+        var msg = ToRadioFactory.CreatePositionRequest(toNodeNum, out var packetId);
+        var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
+        await _transport.SendAsync(framed);
+        return packetId;
+    }
+
+    public async System.Threading.Tasks.Task<uint> SendTraceRouteRequestAsync(uint toNodeNum)
+    {
+        if (!IsConnected || _transport is null)
+            throw new InvalidOperationException("Not connected");
+
+        var msg = ToRadioFactory.CreateTraceRouteRequest(toNodeNum, out var packetId);
+        var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
+        await _transport.SendAsync(framed);
+        return packetId;
+    }
+
     private static bool LooksLikeDebugText(string line)
     {
         if (string.IsNullOrWhiteSpace(line))
