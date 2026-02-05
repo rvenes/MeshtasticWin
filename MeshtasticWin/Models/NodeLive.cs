@@ -10,10 +10,10 @@ public sealed class NodeLive : INotifyPropertyChanged
 
     public string IdHex { get; }
 
-    // Nytt: brukast til sort/filter
+    // Used for sorting/filtering.
     public DateTime LastHeardUtc { get; private set; } = DateTime.MinValue;
 
-    // Valfritt (om du vil vise i UI)
+    // Optional (can be shown in UI).
     public ulong NodeNum { get; set; }
 
     public string ShortId
@@ -29,12 +29,7 @@ public sealed class NodeLive : INotifyPropertyChanged
                 s = s.Substring(3).Trim();
 
             if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            {
-                var hex = s.Substring(2);
-                if (hex.Length >= 4)
-                    return "0x" + hex[^4..].ToUpperInvariant();
-                return "0x" + hex.ToUpperInvariant();
-            }
+                s = s.Substring(2);
 
             if (s.Length >= 4)
                 return s[^4..].ToUpperInvariant();
@@ -85,7 +80,7 @@ public sealed class NodeLive : INotifyPropertyChanged
         set { if (_lastHeard != value) { _lastHeard = value; OnChanged(nameof(LastHeard)); } }
     }
 
-    // GPS (antar desse felta finst i din NodeLive – om dei alt finst, behold dei og fjern duplikat)
+    // GPS fields.
     private double _lat;
     public double Latitude { get => _lat; set { if (_lat != value) { _lat = value; OnChanged(nameof(Latitude)); OnChanged(nameof(HasPosition)); } } }
 
