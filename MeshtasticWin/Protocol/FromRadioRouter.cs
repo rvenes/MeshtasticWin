@@ -11,6 +11,9 @@ public static class FromRadioRouter
     private const int TextMessagePortNum = 1; // TEXT_MESSAGE_APP
     private const int PositionPortNum = 3;    // POSITION_APP
     private const int RoutingAppPortNum = 5;  // ROUTING_APP
+    private const int DetectionSensorPortNum = 10; // DETECTION_SENSOR_APP
+    private const int TelemetryAppPortNum = 67; // TELEMETRY_APP
+    private const int TraceRoutePortNum = 70; // TRACEROUTE_APP
     private const int MaxMessages = 500;
 
     public static bool TryHandle(byte[] payload, Action<Action> runOnUi, Action<string> logToUi, out string summary)
@@ -119,6 +122,30 @@ public static class FromRadioRouter
         {
             if (TryHandlePositionFromPayload(decodedObj, fromNodeNum, source: "position_packet", logToUi, out var s))
                 logToUi("GPS: " + s);
+            return;
+        }
+
+        // --- TELEMETRY_APP ---
+        if (portNum == TelemetryAppPortNum)
+        {
+            if (TryHandleTelemetryFromPayload(decodedObj, fromNodeNum, logToUi, out var s))
+                logToUi("Telemetry: " + s);
+            return;
+        }
+
+        // --- TRACEROUTE_APP ---
+        if (portNum == TraceRoutePortNum)
+        {
+            if (TryHandleTraceRouteFromPayload(decodedObj, fromNodeNum, logToUi, out var s))
+                logToUi("TraceRoute: " + s);
+            return;
+        }
+
+        // --- DETECTION_SENSOR_APP ---
+        if (portNum == DetectionSensorPortNum)
+        {
+            if (TryHandleDetectionSensorFromPayload(decodedObj, fromNodeNum, logToUi, out var s))
+                logToUi("Detection: " + s);
             return;
         }
 
@@ -364,6 +391,172 @@ public static class FromRadioRouter
         summary = $"{node.ShortId} {lat:0.000000},{lon:0.000000} ({tsUtc:HH:mm:ss}Z) src={source}";
     }
 
+    private static bool TryHandleTelemetryFromPayload(object decodedObj, uint fromNodeNum, Action<string> logToUi, out string summary)
+    {
+        summary = "telemetry empty";
+        var payloadBytes = TryGetPayloadBytes(decodedObj);
+        if (payloadBytes is null || payloadBytes.Length == 0)
+            return false;
+
+        var telemetryType = FindTypeByName("Telemetry");
+        if (telemetryType is null)
+        {
+            summary = "Telemetry type not found";
+            return false;
+        }
+
+        var parser = telemetryType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        if (parser is null)
+        {
+            summary = "Telemetry.Parser missing";
+            return false;
+        }
+
+        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
+        if (parseFrom is null)
+        {
+            summary = "Telemetry.Parser.ParseFrom(byte[]) missing";
+            return false;
+        }
+
+        object? telemetryObj;
+        try
+        {
+            telemetryObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+        }
+        catch (Exception ex)
+        {
+            summary = $"Telemetry.ParseFrom exception: {ex.GetType().Name}: {ex.Message}";
+            return false;
+        }
+
+        if (telemetryObj is null)
+        {
+            summary = "Telemetry.ParseFrom returned null";
+            return false;
+        }
+
+        var tsUtc = DateTime.UtcNow;
+        if (TryGetUInt(telemetryObj, "Time", out var timeSec) && timeSec > 0)
+            tsUtc = DateTimeOffset.FromUnixTimeSeconds(timeSec).UtcDateTime;
+
+        var fromIdHex = $"0x{fromNodeNum:x8}";
+        var logType = (NodeLogType?)null;
+        var label = "";
+        object? metricsObj = null;
+
+        if (TryGetObj(telemetryObj, "DeviceMetrics", out metricsObj) && metricsObj is not null)
+        {
+            logType = NodeLogType.DeviceMetrics;
+            label = "device";
+        }
+        else if (TryGetObj(telemetryObj, "EnvironmentMetrics", out metricsObj) && metricsObj is not null)
+        {
+            logType = NodeLogType.EnvironmentMetrics;
+            label = "environment";
+        }
+        else if (TryGetObj(telemetryObj, "PowerMetrics", out metricsObj) && metricsObj is not null)
+        {
+            logType = NodeLogType.PowerMetrics;
+            label = "power";
+        }
+        else if (TryGetObj(telemetryObj, "AirQualityMetrics", out metricsObj) && metricsObj is not null)
+        {
+            logType = NodeLogType.EnvironmentMetrics;
+            label = "air_quality";
+        }
+
+        if (logType is null || metricsObj is null)
+        {
+            summary = "Telemetry (unknown variant)";
+            return true;
+        }
+
+        var formatted = FormatProtoSingleLine(metricsObj);
+        var line = $"{label}: {formatted}";
+        NodeLogArchive.Append(logType.Value, fromIdHex, tsUtc, line);
+        summary = line;
+        return true;
+    }
+
+    private static bool TryHandleTraceRouteFromPayload(object decodedObj, uint fromNodeNum, Action<string> logToUi, out string summary)
+    {
+        summary = "traceroute empty";
+        var payloadBytes = TryGetPayloadBytes(decodedObj);
+        if (payloadBytes is null || payloadBytes.Length == 0)
+            return false;
+
+        var routeType = FindTypeByName("RouteDiscovery");
+        if (routeType is null)
+        {
+            summary = "RouteDiscovery type not found";
+            return false;
+        }
+
+        var parser = routeType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        if (parser is null)
+        {
+            summary = "RouteDiscovery.Parser missing";
+            return false;
+        }
+
+        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
+        if (parseFrom is null)
+        {
+            summary = "RouteDiscovery.Parser.ParseFrom(byte[]) missing";
+            return false;
+        }
+
+        object? routeObj;
+        try
+        {
+            routeObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+        }
+        catch (Exception ex)
+        {
+            summary = $"RouteDiscovery.ParseFrom exception: {ex.GetType().Name}: {ex.Message}";
+            return false;
+        }
+
+        if (routeObj is null)
+        {
+            summary = "RouteDiscovery.ParseFrom returned null";
+            return false;
+        }
+
+        var formatted = FormatProtoSingleLine(routeObj);
+        var fromIdHex = $"0x{fromNodeNum:x8}";
+        NodeLogArchive.Append(NodeLogType.TraceRoute, fromIdHex, DateTime.UtcNow, formatted);
+        summary = formatted;
+        return true;
+    }
+
+    private static bool TryHandleDetectionSensorFromPayload(object decodedObj, uint fromNodeNum, Action<string> logToUi, out string summary)
+    {
+        summary = "detection empty";
+        var payloadBytes = TryGetPayloadBytes(decodedObj);
+        if (payloadBytes is null || payloadBytes.Length == 0)
+            return false;
+
+        string text;
+        try
+        {
+            text = System.Text.Encoding.UTF8.GetString(payloadBytes).Trim('\0', '\r', '\n');
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var fromIdHex = $"0x{fromNodeNum:x8}";
+        NodeLogArchive.Append(NodeLogType.DetectionSensor, fromIdHex, DateTime.UtcNow, text);
+        summary = text;
+        return true;
+    }
+
     private static int TryGetPortNum(object decodedObj)
     {
         var p = decodedObj.GetType().GetProperty("Portnum", BindingFlags.Public | BindingFlags.Instance);
@@ -411,6 +604,16 @@ public static class FromRadioRouter
         return false;
     }
 
+    private static bool TryGetObj(object obj, string propName, out object? value)
+    {
+        value = null;
+        var p = obj.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
+        if (p is null) return false;
+
+        value = p.GetValue(obj);
+        return value is not null;
+    }
+
     private static bool TryGetInt(object obj, string propName, out int value)
     {
         value = 0;
@@ -440,6 +643,16 @@ public static class FromRadioRouter
         if (double.TryParse(v.ToString(), out var parsed)) { value = parsed; return true; }
 
         return false;
+    }
+
+    private static string FormatProtoSingleLine(object obj)
+    {
+        var text = obj.ToString() ?? "";
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var parts = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(" ", parts.Select(p => p.Trim())).Trim();
     }
 
     private static Type? FindTypeByName(string typeName)
