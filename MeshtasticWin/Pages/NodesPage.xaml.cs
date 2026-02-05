@@ -48,7 +48,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private string _powerMetricsLogText = "No log entries yet.";
     private string _detectionSensorLogText = "No log entries yet.";
 
-    public ObservableCollection<PositionLogEntry> PositionLogEntries { get; } = new();
+    internal ObservableCollection<PositionLogEntry> PositionLogEntries { get; } = new();
     private PositionLogEntry? _selectedPositionEntry;
 
     private NodeLive? _selected;
@@ -573,7 +573,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             if (node.IdHex is null) continue;
 
-            foreach (var kind in LogKindExtensions.AllLogKinds)
+            foreach (var kind in AllLogKinds)
             {
                 var newWriteTime = GetLogLastWriteTimeUtc(node.IdHex, kind);
                 var lastWriteTime = GetLastLogWriteTime(node.IdHex, kind);
@@ -681,7 +681,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (Selected is null)
             return "No log entries yet.";
 
-        var lines = NodeLogArchive.ReadTail(kind.ToArchiveType(), Selected.IdHex, maxLines: 400);
+        var lines = NodeLogArchive.ReadTail(ToArchiveType(kind), Selected.IdHex, maxLines: 400);
         return lines.Length == 0 ? "No log entries yet." : string.Join(Environment.NewLine, lines);
     }
 
@@ -848,7 +848,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
     }
 
-    private sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string DisplayText)
+    internal sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string DisplayText)
     {
         public static PositionLogEntry FromPoint(GpsArchive.PositionPoint point)
         {
@@ -871,27 +871,24 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         DetectionSensor
     }
 
-    private static class LogKindExtensions
+    private static readonly LogKind[] AllLogKinds =
     {
-        public static readonly LogKind[] AllLogKinds =
-        {
-            LogKind.DeviceMetrics,
-            LogKind.Position,
-            LogKind.TraceRoute,
-            LogKind.PowerMetrics,
-            LogKind.DetectionSensor
-        };
+        LogKind.DeviceMetrics,
+        LogKind.Position,
+        LogKind.TraceRoute,
+        LogKind.PowerMetrics,
+        LogKind.DetectionSensor
+    };
 
-        public static NodeLogType ToArchiveType(this LogKind kind)
-            => kind switch
-            {
-                LogKind.DeviceMetrics => NodeLogType.DeviceMetrics,
-                LogKind.TraceRoute => NodeLogType.TraceRoute,
-                LogKind.PowerMetrics => NodeLogType.PowerMetrics,
-                LogKind.DetectionSensor => NodeLogType.DetectionSensor,
-                _ => NodeLogType.DeviceMetrics
-            };
-    }
+    private static NodeLogType ToArchiveType(LogKind kind)
+        => kind switch
+        {
+            LogKind.DeviceMetrics => NodeLogType.DeviceMetrics,
+            LogKind.TraceRoute => NodeLogType.TraceRoute,
+            LogKind.PowerMetrics => NodeLogType.PowerMetrics,
+            LogKind.DetectionSensor => NodeLogType.DetectionSensor,
+            _ => NodeLogType.DeviceMetrics
+        };
 
     private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
