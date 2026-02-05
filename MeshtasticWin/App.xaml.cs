@@ -13,6 +13,7 @@ namespace MeshtasticWin
 
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            Services.NodeLogArchive.EnsureBaseFolders();
             MainWindowInstance = new MainWindow();
             MainWindowInstance.Activate();
         }

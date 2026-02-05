@@ -37,14 +37,14 @@
 </head>
 <body>
 <div id="map"></div>
-<div class="top" id="top">MAP: lastar…</div>
+<div class="top" id="top">MAP: loading…</div>
 
 <script>
   const web = (window.chrome && window.chrome.webview) ? window.chrome.webview : null;
   function post(o){ if (web) web.postMessage(o); }
 
   document.getElementById('top').textContent = (typeof L === 'undefined')
-    ? "MAP: Leaflet manglar"
+    ? "MAP: Leaflet missing"
     : ("MAP: Leaflet OK " + L.version);
 
   if (typeof L === 'undefined') {
@@ -94,6 +94,8 @@
     const markers = new Map(); // idHex -> L.Marker
     const labels  = new Map(); // idHex -> L.Marker (divIcon)
     let selectedId = null;
+    let peekMarker = null;
+    let peekTimer = null;
 
     // --- anti-overlap jitter ---
     const samePosBuckets = new Map(); // key -> [idHex...]
@@ -236,6 +238,26 @@
       m.openTooltip();
     }
 
+    function showPositionPeek(lat, lon){
+      if (peekMarker) { map.removeLayer(peekMarker); peekMarker = null; }
+      if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+
+      peekMarker = L.circleMarker([lat, lon], {
+        radius: 8,
+        color: '#ff6f00',
+        weight: 3,
+        fillColor: '#ffb300',
+        fillOpacity: 0.7
+      }).addTo(map);
+
+      map.setView([lat, lon], Math.max(map.getZoom(), 14));
+
+      peekTimer = setTimeout(() => {
+        if (peekMarker) { map.removeLayer(peekMarker); peekMarker = null; }
+        peekTimer = null;
+      }, 10000);
+    }
+
     if (web){
       web.addEventListener('message', (ev) => {
         const msg = ev.data;
@@ -245,6 +267,7 @@
         if (msg.type === "selected") { selectedId = msg.idHex || null; highlight(); if (selectedId) zoomTo(selectedId); return; }
         if (msg.type === "fitAll") { fitAll(); return; }
         if (msg.type === "zoomTo") { zoomTo(msg.idHex); return; }
+        if (msg.type === "positionPeek") { showPositionPeek(msg.lat, msg.lon); return; }
       });
     }
 
