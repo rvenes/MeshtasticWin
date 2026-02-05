@@ -462,7 +462,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             foreach (var p in points)
             {
-                sb.AppendLine($"{p.TsUtc:O} | {p.Lat:0.0000000},{p.Lon:0.0000000} | alt={p.Alt?.ToString(\"0.##\") ?? \"\"} | {p.Src}");
+                var altText = p.Alt?.ToString("0.##") ?? "";
+                sb.AppendLine($"{p.TsUtc:O} | {p.Lat:0.0000000},{p.Lon:0.0000000} | alt={altText} | {p.Src}");
             }
         }
 
