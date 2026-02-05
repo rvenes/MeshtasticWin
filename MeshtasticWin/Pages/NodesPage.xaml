@@ -84,25 +84,35 @@
             <Border Grid.Row="2" CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <StackPanel Spacing="8">
                     <TextBlock Text="Logs" FontSize="16" FontWeight="SemiBold"/>
-                    <WrapPanel HorizontalAlignment="Left" VerticalAlignment="Center" ItemWidth="190" ItemHeight="36">
+                    <ItemsControl HorizontalAlignment="Left">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="190" ItemHeight="36"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <Button Content="Device Metrics Log" Click="DeviceMetricsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Position Log" Click="PositionLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Environment Metrics Log" Click="EnvironmentMetricsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Trace Route Log" Click="TraceRouteLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Power Metrics Log" Click="PowerMetricsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Detection Sensor Log" Click="DetectionSensorLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
-                    </WrapPanel>
+                    </ItemsControl>
                 </StackPanel>
             </Border>
 
             <Border Grid.Row="4" CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <StackPanel Spacing="8">
                     <TextBlock Text="Actions" FontSize="16" FontWeight="SemiBold"/>
-                    <WrapPanel HorizontalAlignment="Left" VerticalAlignment="Center" ItemWidth="190" ItemHeight="36">
+                    <ItemsControl HorizontalAlignment="Left">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="190" ItemHeight="36"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <Button Content="Exchange User Info" Click="ExchangeUserInfo_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Exchange Positions" Click="ExchangePositions_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
                         <Button Content="Trace Route" Click="TraceRoute_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8"/>
-                    </WrapPanel>
+                    </ItemsControl>
                 </StackPanel>
             </Border>
 
