@@ -24,6 +24,8 @@ public static class ToRadioFactory
 
     private static PropertyInfo? _decodedPortnumProp;
     private static PropertyInfo? _decodedPayloadProp;
+    private static PropertyInfo? _decodedWantResponseProp;
+    private static PropertyInfo? _decodedDestProp;
 
     public static IMessage CreateHelloRequest(uint wantConfigId = 1u)
     {
@@ -108,6 +110,82 @@ public static class ToRadioFactory
         return toRadio;
     }
 
+    public static IMessage CreateNodeInfoRequest(uint to, out uint packetId)
+        => CreateRequestMessage(to, portNum: 4, wantResponse: true, payload: Array.Empty<byte>(), dest: null, out packetId);
+
+    public static IMessage CreatePositionRequest(uint to, out uint packetId)
+        => CreateRequestMessage(to, portNum: 3, wantResponse: true, payload: Array.Empty<byte>(), dest: null, out packetId);
+
+    public static IMessage CreateTraceRouteRequest(uint to, out uint packetId)
+    {
+        var payload = CreateRouteDiscoveryPayload();
+        return CreateRequestMessage(to, portNum: 70, wantResponse: true, payload: payload, dest: to, out packetId);
+    }
+
+    private static IMessage CreateRequestMessage(
+        uint to,
+        int portNum,
+        bool wantResponse,
+        byte[] payload,
+        uint? dest,
+        out uint packetId)
+    {
+        EnsureCached();
+
+        packetId = 0;
+
+        if (_toRadioType is null || _meshPacketType is null || _decodedType is null)
+            throw new InvalidOperationException("Proto types not found (ToRadio/MeshPacket/Decoded)");
+
+        if (_toRadioPacketProp is null)
+            throw new InvalidOperationException("ToRadio.Packet property not found");
+
+        if (_packetToProp is null || _packetDecodedProp is null)
+            throw new InvalidOperationException("MeshPacket.{To/Decoded} properties not found");
+
+        if (_decodedPortnumProp is null || _decodedPayloadProp is null)
+            throw new InvalidOperationException("Decoded.{Portnum/Payload} properties not found");
+
+        var toRadio = (IMessage)Activator.CreateInstance(_toRadioType)!;
+        var packet = Activator.CreateInstance(_meshPacketType)!;
+
+        _packetToProp.SetValue(packet, to);
+
+        if (_packetChannelProp is not null)
+            _packetChannelProp.SetValue(packet, 0u);
+
+        if (_packetHopLimitProp is not null)
+            _packetHopLimitProp.SetValue(packet, 3u);
+
+        if (_packetIdProp is not null)
+        {
+            packetId = PacketIdGenerator.Next();
+            _packetIdProp.SetValue(packet, packetId);
+        }
+
+        if (_packetWantAckProp is not null)
+            _packetWantAckProp.SetValue(packet, true);
+
+        var decoded = Activator.CreateInstance(_decodedType)!;
+
+        var portPropType = _decodedPortnumProp.PropertyType;
+        object portValue = portPropType.IsEnum ? Enum.ToObject(portPropType, portNum) : portNum;
+        _decodedPortnumProp.SetValue(decoded, portValue);
+
+        _decodedPayloadProp.SetValue(decoded, ByteString.CopyFrom(payload ?? Array.Empty<byte>()));
+
+        if (wantResponse && _decodedWantResponseProp is not null)
+            _decodedWantResponseProp.SetValue(decoded, true);
+
+        if (dest.HasValue && _decodedDestProp is not null)
+            _decodedDestProp.SetValue(decoded, dest.Value);
+
+        _packetDecodedProp.SetValue(packet, decoded);
+        _toRadioPacketProp.SetValue(toRadio, packet);
+
+        return toRadio;
+    }
+
     private static void EnsureCached()
     {
         if (_toRadioType is not null)
@@ -152,7 +230,25 @@ public static class ToRadioFactory
 
             _decodedPayloadProp =
                 _decodedType.GetProperty("Payload", BindingFlags.Public | BindingFlags.Instance);
+
+            _decodedWantResponseProp =
+                _decodedType.GetProperty("WantResponse", BindingFlags.Public | BindingFlags.Instance);
+
+            _decodedDestProp =
+                _decodedType.GetProperty("Dest", BindingFlags.Public | BindingFlags.Instance);
         }
+    }
+
+    private static byte[] CreateRouteDiscoveryPayload()
+    {
+        var routeType = FindTypeByName("RouteDiscovery");
+        if (routeType is null)
+            return Array.Empty<byte>();
+
+        if (Activator.CreateInstance(routeType) is not IMessage msg)
+            return Array.Empty<byte>();
+
+        return msg.ToByteArray();
     }
 
     private static Type? FindTypeByName(string typeName)
