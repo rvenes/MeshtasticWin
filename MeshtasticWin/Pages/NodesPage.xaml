@@ -58,7 +58,7 @@
         </Grid>
 
         <!-- RIGHT -->
-        <Grid Grid.Column="2" RowDefinitions="Auto,8,*">
+        <Grid Grid.Column="2" RowDefinitions="Auto,8,Auto,8,Auto,8,*">
             <!-- More height here: info + buttons fit without covering the position text. -->
             <Border CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <Grid RowDefinitions="Auto,6,Auto,6,Auto" ColumnDefinitions="Auto,*,Auto">
@@ -81,7 +81,60 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
+            <Border Grid.Row="2" CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Logs" FontSize="16" FontWeight="SemiBold"/>
+                    <ItemsControl HorizontalAlignment="Left">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="220" ItemHeight="44"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <Button Click="DeviceMetricsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Device Metrics Log" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="PositionLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Position Log" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="EnvironmentMetricsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Environment Metrics Log" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="TraceRouteLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Trace Route Log" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="PowerMetricsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Power Metrics Log" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="DetectionSensorLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Detection Sensor Log" TextWrapping="Wrap"/>
+                        </Button>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="4" CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Actions" FontSize="16" FontWeight="SemiBold"/>
+                    <ItemsControl HorizontalAlignment="Left">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="220" ItemHeight="44"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <Button Click="ExchangeUserInfo_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Exchange User Info" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="ExchangePositions_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="Exchange Positions" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button Click="TraceRoute_Click" IsEnabled="{x:Bind IsTraceRouteEnabled, Mode=OneWay}" Margin="0,0,8,8" HorizontalContentAlignment="Center">
+                            <TextBlock Text="{x:Bind TraceRouteButtonText, Mode=OneWay}" TextWrapping="Wrap"/>
+                        </Button>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="6" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <controls:WebView2 x:Name="MapView"/>
             </Border>
         </Grid>
