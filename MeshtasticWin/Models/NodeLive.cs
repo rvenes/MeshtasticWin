@@ -114,7 +114,7 @@ public sealed class NodeLive : INotifyPropertyChanged
 
     public Visibility UnreadVisible => HasUnread ? Visibility.Visible : Visibility.Collapsed;
 
-    // Bruk namn frå NodeInfo når dei finst, ellers ShortId/IdHex.
+    // Prefer name from NodeInfo when available, otherwise fall back to ShortId/IdHex.
     public string Name
     {
         get
@@ -141,8 +141,10 @@ public sealed class NodeLive : INotifyPropertyChanged
                 return;
 
             if (string.Equals(peer, IdHex, StringComparison.OrdinalIgnoreCase))
+            {
                 OnChanged(nameof(HasUnread));
                 OnChanged(nameof(UnreadVisible));
+            }
         };
 
         Touch();

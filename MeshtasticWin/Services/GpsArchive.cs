@@ -8,7 +8,7 @@ namespace MeshtasticWin.Services;
 
 public static class GpsArchive
 {
-    // Denne typen mangla hos deg – no ligg han her, alltid tilgjengeleg.
+    // This type was missing in earlier revisions; keep it here to ensure it is always available.
     public sealed record PositionPoint(double Lat, double Lon, DateTime TsUtc, double? Alt, string Src);
 
     private static readonly object _gate = new();
@@ -28,7 +28,7 @@ public static class GpsArchive
         if (safe.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             safe = safe[2..];
 
-        // 0xAABBCCDD -> AABBCCDD.log
+        // 0xAABBCCDD -> 0xAABBCCDD.log
         safe = new string(safe.Where(ch => char.IsLetterOrDigit(ch)).ToArray());
         if (string.IsNullOrWhiteSpace(safe))
             safe = "unknown";
@@ -77,7 +77,7 @@ public static class GpsArchive
             lines = File.ReadAllLines(path);
         }
 
-        // Les siste maxPoints (for ytelse på store filer)
+        // Read the last maxPoints lines (performance for large files).
         var slice = lines.Length <= maxPoints ? lines : lines[^maxPoints..];
 
         var list = new List<PositionPoint>(slice.Length);
