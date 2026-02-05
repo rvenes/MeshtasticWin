@@ -9,6 +9,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Windows.ApplicationModel;
 
@@ -386,6 +387,139 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (Selected is null) return;
         MeshtasticWin.AppState.SetActiveChatPeer(Selected.IdHex);
         App.MainWindowInstance?.NavigateTo("messages");
+    }
+
+    private async void DeviceMetricsLog_Click(object sender, RoutedEventArgs e)
+        => await ShowNodeLogAsync(NodeLogType.DeviceMetrics, "Device Metrics Log");
+
+    private async void EnvironmentMetricsLog_Click(object sender, RoutedEventArgs e)
+        => await ShowNodeLogAsync(NodeLogType.EnvironmentMetrics, "Environment Metrics Log");
+
+    private async void PowerMetricsLog_Click(object sender, RoutedEventArgs e)
+        => await ShowNodeLogAsync(NodeLogType.PowerMetrics, "Power Metrics Log");
+
+    private async void DetectionSensorLog_Click(object sender, RoutedEventArgs e)
+        => await ShowNodeLogAsync(NodeLogType.DetectionSensor, "Detection Sensor Log");
+
+    private async void TraceRouteLog_Click(object sender, RoutedEventArgs e)
+        => await ShowNodeLogAsync(NodeLogType.TraceRoute, "Trace Route Log");
+
+    private async void PositionLog_Click(object sender, RoutedEventArgs e)
+        => await ShowPositionLogAsync();
+
+    private async void ExchangeUserInfo_Click(object sender, RoutedEventArgs e)
+        => await SendRequestAsync("Exchange User Info", async nodeNum =>
+            await RadioClient.Instance.SendNodeInfoRequestAsync(nodeNum));
+
+    private async void ExchangePositions_Click(object sender, RoutedEventArgs e)
+        => await SendRequestAsync("Exchange Positions", async nodeNum =>
+            await RadioClient.Instance.SendPositionRequestAsync(nodeNum));
+
+    private async void TraceRoute_Click(object sender, RoutedEventArgs e)
+        => await SendRequestAsync("Trace Route", async nodeNum =>
+            await RadioClient.Instance.SendTraceRouteRequestAsync(nodeNum));
+
+    private async System.Threading.Tasks.Task ShowNodeLogAsync(NodeLogType type, string title)
+    {
+        if (Selected is null) return;
+
+        var lines = NodeLogArchive.ReadTail(type, Selected.IdHex, maxLines: 400);
+        var content = lines.Length == 0 ? "Ingen logglinjer enno." : string.Join(Environment.NewLine, lines);
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            PrimaryButtonText = "Lukk",
+            XamlRoot = XamlRoot,
+            Content = new ScrollViewer
+            {
+                Content = new TextBox
+                {
+                    Text = content,
+                    IsReadOnly = true,
+                    TextWrapping = TextWrapping.Wrap,
+                    AcceptsReturn = true,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                    MinHeight = 200
+                }
+            }
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private async System.Threading.Tasks.Task ShowPositionLogAsync()
+    {
+        if (Selected is null) return;
+
+        var points = GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000);
+        var sb = new StringBuilder();
+        if (points.Count == 0)
+        {
+            sb.Append("Ingen GPS logg for denne noden.");
+        }
+        else
+        {
+            foreach (var p in points)
+            {
+                sb.AppendLine($"{p.TsUtc:O} | {p.Lat:0.0000000},{p.Lon:0.0000000} | alt={p.Alt?.ToString(\"0.##\") ?? \"\"} | {p.Src}");
+            }
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Position Log",
+            PrimaryButtonText = "Lukk",
+            XamlRoot = XamlRoot,
+            Content = new ScrollViewer
+            {
+                Content = new TextBox
+                {
+                    Text = sb.ToString(),
+                    IsReadOnly = true,
+                    TextWrapping = TextWrapping.Wrap,
+                    AcceptsReturn = true,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                    MinHeight = 200
+                }
+            }
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private async System.Threading.Tasks.Task SendRequestAsync(string actionName, Func<uint, System.Threading.Tasks.Task<uint>> action)
+    {
+        if (Selected is null) return;
+        if (Selected.NodeNum == 0)
+        {
+            await ShowStatusAsync($"{actionName}: nodeNum manglar.");
+            return;
+        }
+
+        try
+        {
+            var packetId = await action((uint)Selected.NodeNum);
+            RadioClient.Instance.AddLogFromUiThread($"{actionName} sendt til {Selected.Name} (packetId=0x{packetId:x8}).");
+            await ShowStatusAsync($"{actionName} sendt til {Selected.Name}.");
+        }
+        catch (Exception ex)
+        {
+            await ShowStatusAsync($"{actionName} feila: {ex.Message}");
+        }
+    }
+
+    private async System.Threading.Tasks.Task ShowStatusAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "MeshtasticWin",
+            PrimaryButtonText = "Lukk",
+            XamlRoot = XamlRoot,
+            Content = message
+        };
+
+        await dialog.ShowAsync();
     }
 
     private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
