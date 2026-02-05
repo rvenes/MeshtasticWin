@@ -504,14 +504,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             Visibility = entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed
         };
 
-        listView.SelectionChanged += (_, __) =>
-        {
-            selectedEntry = listView.SelectedItem as PositionLogEntry;
-            openMapsButton.IsEnabled = selectedEntry is not null;
-            if (selectedEntry is not null)
-                ShowPositionOnMap(selectedEntry.Lat, selectedEntry.Lon);
-        };
-
         var buttonPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -535,6 +527,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         var closeButton = new Button { Content = "Close" };
         closeButton.Click += (_, __) => window.Close();
+
+        listView.SelectionChanged += (_, __) =>
+        {
+            selectedEntry = listView.SelectedItem as PositionLogEntry;
+            openMapsButton.IsEnabled = selectedEntry is not null;
+            if (selectedEntry is not null)
+                ShowPositionOnMap(selectedEntry.Lat, selectedEntry.Lon);
+        };
 
         buttonPanel.Children.Add(openMapsButton);
         buttonPanel.Children.Add(closeButton);
