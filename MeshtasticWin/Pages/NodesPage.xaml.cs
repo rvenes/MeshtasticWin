@@ -271,7 +271,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             wv.WebMessageReceived += CoreWebView2_WebMessageReceived;
             wv.NavigationCompleted += CoreWebView2_NavigationCompleted;
-            wv.ConsoleMessageReceived += CoreWebView2_ConsoleMessageReceived;
             _mapEventsAttached = true;
         }
 
@@ -418,11 +417,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         ShowMapFallback($"Map failed to load: {e.WebErrorStatus}");
         _mapConfigured = false;
         _mapInitializationTask = null;
-    }
-
-    private void CoreWebView2_ConsoleMessageReceived(object? sender, CoreWebView2ConsoleMessageReceivedEventArgs e)
-    {
-        RadioClient.Instance.AddLogFromUiThread($"Map console [{e.Level}]: {e.Message}");
     }
 
     private static async System.Threading.Tasks.Task InjectConsoleBridgeAsync(CoreWebView2 webView)
