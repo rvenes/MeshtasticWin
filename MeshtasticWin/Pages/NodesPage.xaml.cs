@@ -271,7 +271,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             wv.WebMessageReceived += CoreWebView2_WebMessageReceived;
             wv.NavigationCompleted += CoreWebView2_NavigationCompleted;
-            wv.ConsoleMessage += CoreWebView2_ConsoleMessage;
+            wv.ConsoleMessageReceived += CoreWebView2_ConsoleMessageReceived;
             _mapEventsAttached = true;
         }
 
@@ -303,6 +303,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             _mapReady = false;
             wv.SetVirtualHostNameToFolderMapping("appassets.local", _mapFolderPath, CoreWebView2HostResourceAccessKind.Allow);
+            _ = InjectConsoleBridgeAsync(wv);
             MapView.Source = _mapUri;
         }
         catch (Exception ex)
@@ -347,6 +348,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             var root = doc.RootElement;
             var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
             if (string.IsNullOrWhiteSpace(type)) return;
+
+            if (type == "console")
+            {
+                var level = root.TryGetProperty("level", out var levelEl) ? levelEl.GetString() : "log";
+                var message = root.TryGetProperty("message", out var messageEl) ? messageEl.GetString() : "";
+                RadioClient.Instance.AddLogFromUiThread($"Map console [{level}]: {message}");
+                return;
+            }
 
             if (type == "ready")
             {
@@ -411,9 +420,45 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _mapInitializationTask = null;
     }
 
-    private void CoreWebView2_ConsoleMessage(object? sender, CoreWebView2ConsoleMessageReceivedEventArgs e)
+    private void CoreWebView2_ConsoleMessageReceived(object? sender, CoreWebView2ConsoleMessageReceivedEventArgs e)
     {
         RadioClient.Instance.AddLogFromUiThread($"Map console [{e.Level}]: {e.Message}");
+    }
+
+    private static async System.Threading.Tasks.Task InjectConsoleBridgeAsync(CoreWebView2 webView)
+    {
+        const string script = """
+            (() => {
+                if (window.__meshtasticConsoleBridgeInstalled) {
+                    return;
+                }
+                window.__meshtasticConsoleBridgeInstalled = true;
+                const levels = ["log", "info", "warn", "error", "debug"];
+                levels.forEach(level => {
+                    const original = console[level];
+                    console[level] = (...args) => {
+                        try {
+                            const message = args.map(arg => {
+                                if (typeof arg === "string") return arg;
+                                try { return JSON.stringify(arg); } catch { return String(arg); }
+                            }).join(" ");
+                            chrome.webview.postMessage({ type: "console", level, message });
+                        } catch { }
+                        if (typeof original === "function") {
+                            original.apply(console, args);
+                        }
+                    };
+                });
+            })();
+            """;
+
+        try
+        {
+            await webView.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        }
+        catch
+        {
+        }
     }
 
     private void ShowMapFallback(string message)
