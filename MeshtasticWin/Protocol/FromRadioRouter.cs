@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
+using MeshtasticWin.Models;
 
 namespace MeshtasticWin.Protocol;
 
@@ -474,9 +475,54 @@ public static class FromRadioRouter
 
         var formatted = FormatProtoSingleLine(metricsObj);
         var line = $"{label}: {formatted}";
-        NodeLogArchive.Append(logType.Value, fromIdHex, tsUtc, line);
+        if (logType == NodeLogType.DeviceMetrics)
+        {
+            TryCaptureDeviceMetrics(metricsObj, fromIdHex, tsUtc, logToUi);
+        }
+        else
+        {
+            NodeLogArchive.Append(logType.Value, fromIdHex, tsUtc, line);
+        }
         summary = line;
         return true;
+    }
+
+    private static void TryCaptureDeviceMetrics(object metricsObj, string fromIdHex, DateTime tsUtc, Action<string> logToUi)
+    {
+        double? voltage = null;
+        if (TryGetDouble(metricsObj, "Voltage", out var voltageVal))
+            voltage = voltageVal;
+
+        double? channelUtil = null;
+        if (TryGetDouble(metricsObj, "ChannelUtilization", out var channelVal))
+            channelUtil = channelVal;
+
+        double? airtime = null;
+        if (TryGetDouble(metricsObj, "AirUtilTx", out var airVal))
+            airtime = airVal;
+
+        double? batteryPercent = null;
+        bool? isPowered = null;
+        if (TryGetUInt(metricsObj, "BatteryLevel", out var batteryLevel))
+        {
+            if (batteryLevel <= 100)
+                batteryPercent = batteryLevel;
+            isPowered = batteryLevel > 100;
+        }
+
+        var sample = new DeviceMetricSample(tsUtc, voltage, channelUtil, airtime, isPowered)
+        {
+            BatteryPercent = batteryPercent
+        };
+
+        try
+        {
+            DeviceMetricsLogService.AppendSample(fromIdHex, sample);
+        }
+        catch (Exception ex)
+        {
+            logToUi($"Device metrics log write failed: {ex.Message}");
+        }
     }
 
     private static bool TryHandleTraceRouteFromPayload(object decodedObj, uint fromNodeNum, Action<string> logToUi, out string summary)
