@@ -13,12 +13,7 @@ public static class GpsArchive
 
     private static readonly object _gate = new();
 
-    public static string RootFolder => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "MeshtasticWin",
-        "Logs",
-        "gps"
-    );
+    public static string RootFolder => AppDataPaths.GpsPath;
 
     private static string FilePathFor(string idHex)
     {
@@ -61,6 +56,7 @@ public static class GpsArchive
 
         lock (_gate)
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.AppendAllText(path, line + Environment.NewLine);
         }
     }

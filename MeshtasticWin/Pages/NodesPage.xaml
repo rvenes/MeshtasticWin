@@ -36,10 +36,16 @@
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:NodeLive">
                         <Grid Padding="6" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
-                            <Ellipse Width="8" Height="8" Margin="0,0,8,0"
-                                     Fill="LimeGreen"
-                                     VerticalAlignment="Center"
-                                     Visibility="{x:Bind UnreadVisible}"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="0,0,8,0">
+                                <Ellipse Width="8" Height="8"
+                                         Fill="LimeGreen"
+                                         VerticalAlignment="Center"
+                                         Visibility="{x:Bind LogIndicatorVisible}"/>
+                                <Ellipse Width="8" Height="8"
+                                         Fill="LimeGreen"
+                                         VerticalAlignment="Center"
+                                         Visibility="{x:Bind UnreadVisible}"/>
+                            </StackPanel>
 
                             <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <TextBlock Grid.Column="2" Text="{x:Bind ShortId}" Opacity="0.7" VerticalAlignment="Center"/>
@@ -58,7 +64,7 @@
         </Grid>
 
         <!-- RIGHT -->
-        <Grid Grid.Column="2" RowDefinitions="Auto,8,*">
+        <Grid Grid.Column="2" RowDefinitions="Auto,8,Auto,8,*">
             <!-- More height here: info + buttons fit without covering the position text. -->
             <Border CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <Grid RowDefinitions="Auto,6,Auto,6,Auto" ColumnDefinitions="Auto,*,Auto">
@@ -81,8 +87,114 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
-                <controls:WebView2 x:Name="MapView"/>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="Exchange User Info" Click="ExchangeUserInfo_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                <Button Content="Exchange Positions" Click="ExchangePositions_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                <Button Content="{x:Bind TraceRouteButtonText, Mode=OneWay}" Click="TraceRoute_Click" IsEnabled="{x:Bind IsTraceRouteEnabled, Mode=OneWay}"/>
+            </StackPanel>
+
+            <Border Grid.Row="4" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
+                <controls:TabView x:Name="DetailsTabs" SelectionChanged="DetailsTabs_SelectionChanged">
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Map"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <Border CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
+                            <controls:WebView2 x:Name="MapView"/>
+                        </Border>
+                    </controls:TabViewItem>
+
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Device Metrics"/>
+                                <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
+                                         Visibility="{x:Bind DeviceMetricsTabIndicatorVisibility, Mode=OneWay}"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <TextBox Text="{x:Bind DeviceMetricsLogText, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 FontFamily="Consolas"
+                                 Padding="12"/>
+                    </controls:TabViewItem>
+
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Position Log"/>
+                                <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
+                                         Visibility="{x:Bind PositionTabIndicatorVisibility, Mode=OneWay}"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <Grid RowDefinitions="*,Auto" Padding="12">
+                            <ListView x:Name="PositionLogList"
+                                      ItemsSource="{x:Bind PositionLogEntries, Mode=OneWay}"
+                                      SelectionMode="Single"
+                                      SelectionChanged="PositionLogList_SelectionChanged">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DisplayText}" TextWrapping="NoWrap" FontFamily="Consolas"/>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+                                <Button Content="Open in Google Maps" Click="OpenMaps_Click" IsEnabled="{x:Bind HasPositionSelection, Mode=OneWay}"/>
+                            </StackPanel>
+                        </Grid>
+                    </controls:TabViewItem>
+
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Trace Route Log"/>
+                                <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
+                                         Visibility="{x:Bind TraceRouteTabIndicatorVisibility, Mode=OneWay}"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <TextBox Text="{x:Bind TraceRouteLogText, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 FontFamily="Consolas"
+                                 Padding="12"/>
+                    </controls:TabViewItem>
+
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Power Metrics"/>
+                                <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
+                                         Visibility="{x:Bind PowerMetricsTabIndicatorVisibility, Mode=OneWay}"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <TextBox Text="{x:Bind PowerMetricsLogText, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 FontFamily="Consolas"
+                                 Padding="12"/>
+                    </controls:TabViewItem>
+
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Detection Sensor Log"/>
+                                <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
+                                         Visibility="{x:Bind DetectionSensorTabIndicatorVisibility, Mode=OneWay}"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <TextBox Text="{x:Bind DetectionSensorLogText, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 FontFamily="Consolas"
+                                 Padding="12"/>
+                    </controls:TabViewItem>
+                </controls:TabView>
             </Border>
         </Grid>
     </Grid>
