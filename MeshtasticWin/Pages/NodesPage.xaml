@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:MeshtasticWin.Models"
-    xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    xmlns:charting="using:CommunityToolkit.WinUI.UI.Controls.DataVisualization.Charting">
 
     <Grid Padding="12">
         <Grid.ColumnDefinitions>
