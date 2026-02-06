@@ -165,18 +165,25 @@
                                       x:Name="DeviceMetricsLogList"
                                       ItemsSource="{x:Bind DeviceMetricSamples, Mode=OneWay}"
                                       SelectionMode="None">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="MinHeight" Value="22"/>
+                                        <Setter Property="Padding" Value="2"/>
+                                    </Style>
+                                </ListView.ItemContainerStyle>
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="models:DeviceMetricSample">
-                                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="4">
-                                            <TextBlock Text="{x:Bind TimestampText}" FontFamily="Consolas"/>
+                                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="2">
+                                            <TextBlock Text="{x:Bind TimestampText}" FontFamily="Consolas" FontSize="12"/>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                                                <TextBlock Text="{x:Bind BatteryDisplay}" FontFamily="Consolas"/>
-                                                <TextBlock Text="{x:Bind ChannelUtilizationDisplay}" FontFamily="Consolas"/>
-                                                <TextBlock Text="{x:Bind AirtimeDisplay}" FontFamily="Consolas"/>
+                                                <TextBlock Text="{x:Bind BatteryDisplay}" FontFamily="Consolas" FontSize="12"/>
+                                                <TextBlock Text="{x:Bind ChannelUtilizationDisplay}" FontFamily="Consolas" FontSize="12"/>
+                                                <TextBlock Text="{x:Bind AirtimeDisplay}" FontFamily="Consolas" FontSize="12"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="2"
                                                        Text="{x:Bind PoweredDisplay}"
                                                        FontFamily="Consolas"
+                                                       FontSize="12"
                                                        Foreground="OrangeRed"
                                                        FontWeight="SemiBold"/>
                                         </Grid>

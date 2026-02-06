@@ -51,6 +51,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private Uri? _mapUri;
 
     private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastLogWriteByNode = new();
+    private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastViewedByNode = new();
+    private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastAppendedByNode = new();
     private readonly Dictionary<string, HashSet<LogKind>> _pendingLogIndicatorsByNode = new();
 
     private bool _deviceMetricsTabIndicator;
@@ -93,6 +95,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 _selected.HasLogIndicator = false;
                 ApplyPendingIndicatorsForSelectedNode();
                 RefreshSelectedNodeLogs();
+                var logKind = TabIndexToLogKind(DetailsTabs.SelectedIndex);
+                if (logKind is not null)
+                    MarkTabViewed(logKind.Value, _selected.IdHex);
             }
 
             _ = PushSelectionToMapAsync();
@@ -227,6 +232,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         await EnsureMapAsync();
         await PushAllNodesToMapAsync();
         await PushSelectionToMapAsync();
+        SeedLogWriteTimes();
         DeviceMetricsLogService.SampleAdded += DeviceMetricsLogService_SampleAdded;
         _logPollTimer.Start();
     }
@@ -512,7 +518,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private void Nodes_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems is not null)
-            foreach (NodeLive n in e.NewItems) n.PropertyChanged += Node_PropertyChanged;
+            foreach (NodeLive n in e.NewItems)
+            {
+                n.PropertyChanged += Node_PropertyChanged;
+                SeedLogWriteTimesForNode(n);
+            }
 
         if (e.OldItems is not null)
             foreach (NodeLive n in e.OldItems) n.PropertyChanged -= Node_PropertyChanged;
@@ -731,9 +741,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var logKind = TabIndexToLogKind(DetailsTabs.SelectedIndex);
         if (logKind is null) return;
 
-        ClearTabIndicator(logKind.Value);
         if (Selected is not null)
-            ClearPendingIndicator(Selected.IdHex, logKind.Value);
+            MarkTabViewed(logKind.Value, Selected.IdHex);
 
         RefreshSelectedNodeLogs();
 
@@ -902,7 +911,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         ClearAllTabIndicators();
 
-        if (_pendingLogIndicatorsByNode.TryGetValue(Selected.IdHex, out var pending))
+        if (_pendingLogIndicatorsByNode.TryGetValue(NormalizeNodeId(Selected.IdHex), out var pending))
         {
             foreach (var kind in pending)
                 SetTabIndicator(kind, true);
@@ -942,28 +951,40 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 if (newWriteTime > lastWriteTime)
                 {
                     SetLastLogWriteTime(node.IdHex, kind, newWriteTime);
-                    HandleNewLog(node, kind);
+                    HandleNewLog(node, kind, newWriteTime);
                 }
             }
         }
     }
 
-    private void HandleNewLog(NodeLive node, LogKind kind)
+    private void HandleNewLog(NodeLive node, LogKind kind, DateTime appendedUtc)
     {
-        if (Selected is null || !string.Equals(node.IdHex, Selected.IdHex, StringComparison.OrdinalIgnoreCase))
+        var nodeId = NormalizeNodeId(node.IdHex);
+        SetLastAppendedTimestamp(nodeId, kind, appendedUtc);
+
+        var isSelectedNode = Selected is not null
+            && string.Equals(NormalizeNodeId(Selected.IdHex), nodeId, StringComparison.OrdinalIgnoreCase);
+        var isSelectedTab = IsTabSelectedForLog(kind);
+
+        if (isSelectedNode && isSelectedTab)
         {
-            node.HasLogIndicator = true;
-            AddPendingIndicator(node.IdHex, kind);
+            SetLastViewedTimestamp(nodeId, kind, appendedUtc);
+            ClearTabIndicator(kind);
+            ClearPendingIndicator(nodeId, kind);
+            RefreshSelectedNodeLogs();
             return;
         }
 
-        if (!IsTabSelectedForLog(kind))
+        var shouldShowIndicator = appendedUtc > GetLastViewedTimestamp(nodeId, kind);
+        if (shouldShowIndicator)
         {
-            SetTabIndicator(kind, true);
-            AddPendingIndicator(node.IdHex, kind);
+            if (isSelectedNode)
+                SetTabIndicator(kind, true);
+            AddPendingIndicator(nodeId, kind);
         }
 
-        RefreshSelectedNodeLogs();
+        if (isSelectedNode)
+            RefreshSelectedNodeLogs();
     }
 
     private bool IsTabSelectedForLog(LogKind kind)
@@ -971,23 +992,28 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private void AddPendingIndicator(string nodeId, LogKind kind)
     {
-        if (!_pendingLogIndicatorsByNode.TryGetValue(nodeId, out var set))
+        var normalized = NormalizeNodeId(nodeId);
+        if (!_pendingLogIndicatorsByNode.TryGetValue(normalized, out var set))
         {
             set = new HashSet<LogKind>();
-            _pendingLogIndicatorsByNode[nodeId] = set;
+            _pendingLogIndicatorsByNode[normalized] = set;
         }
 
         set.Add(kind);
+        UpdateNodeLogIndicator(normalized);
     }
 
     private void ClearPendingIndicator(string nodeId, LogKind kind)
     {
-        if (!_pendingLogIndicatorsByNode.TryGetValue(nodeId, out var set))
+        var normalized = NormalizeNodeId(nodeId);
+        if (!_pendingLogIndicatorsByNode.TryGetValue(normalized, out var set))
             return;
 
         set.Remove(kind);
         if (set.Count == 0)
-            _pendingLogIndicatorsByNode.Remove(nodeId);
+            _pendingLogIndicatorsByNode.Remove(normalized);
+
+        UpdateNodeLogIndicator(normalized);
     }
 
     private void ClearAllTabIndicators()
@@ -1063,17 +1089,59 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private DateTime GetLastLogWriteTime(string nodeId, LogKind kind)
     {
-        if (_lastLogWriteByNode.TryGetValue(nodeId, out var map) && map.TryGetValue(kind, out var ts))
+        var normalized = NormalizeNodeId(nodeId);
+        if (_lastLogWriteByNode.TryGetValue(normalized, out var map) && map.TryGetValue(kind, out var ts))
             return ts;
         return DateTime.MinValue;
     }
 
     private void SetLastLogWriteTime(string nodeId, LogKind kind, DateTime timestampUtc)
     {
-        if (!_lastLogWriteByNode.TryGetValue(nodeId, out var map))
+        var normalized = NormalizeNodeId(nodeId);
+        if (!_lastLogWriteByNode.TryGetValue(normalized, out var map))
         {
             map = new Dictionary<LogKind, DateTime>();
-            _lastLogWriteByNode[nodeId] = map;
+            _lastLogWriteByNode[normalized] = map;
+        }
+
+        map[kind] = timestampUtc;
+    }
+
+    private DateTime GetLastViewedTimestamp(string nodeId, LogKind kind)
+    {
+        var normalized = NormalizeNodeId(nodeId);
+        if (_lastViewedByNode.TryGetValue(normalized, out var map) && map.TryGetValue(kind, out var ts))
+            return ts;
+        return DateTime.MinValue;
+    }
+
+    private void SetLastViewedTimestamp(string nodeId, LogKind kind, DateTime timestampUtc)
+    {
+        var normalized = NormalizeNodeId(nodeId);
+        if (!_lastViewedByNode.TryGetValue(normalized, out var map))
+        {
+            map = new Dictionary<LogKind, DateTime>();
+            _lastViewedByNode[normalized] = map;
+        }
+
+        map[kind] = timestampUtc;
+    }
+
+    private DateTime GetLastAppendedTimestamp(string nodeId, LogKind kind)
+    {
+        var normalized = NormalizeNodeId(nodeId);
+        if (_lastAppendedByNode.TryGetValue(normalized, out var map) && map.TryGetValue(kind, out var ts))
+            return ts;
+        return DateTime.MinValue;
+    }
+
+    private void SetLastAppendedTimestamp(string nodeId, LogKind kind, DateTime timestampUtc)
+    {
+        var normalized = NormalizeNodeId(nodeId);
+        if (!_lastAppendedByNode.TryGetValue(normalized, out var map))
+        {
+            map = new Dictionary<LogKind, DateTime>();
+            _lastAppendedByNode[normalized] = map;
         }
 
         map[kind] = timestampUtc;
@@ -1133,6 +1201,50 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private static string NormalizeNodeId(string idHex)
         => $"0x{SanitizeNodeId(idHex)}";
+
+    private void SeedLogWriteTimes()
+    {
+        foreach (var node in MeshtasticWin.AppState.Nodes)
+            SeedLogWriteTimesForNode(node);
+    }
+
+    private void SeedLogWriteTimesForNode(NodeLive node)
+    {
+        if (node.IdHex is null)
+            return;
+
+        foreach (var kind in AllLogKinds)
+        {
+            var writeTime = GetLogLastWriteTimeUtc(node.IdHex, kind);
+            if (writeTime != DateTime.MinValue)
+                SetLastLogWriteTime(node.IdHex, kind, writeTime);
+        }
+    }
+
+    private void MarkTabViewed(LogKind kind, string nodeId)
+    {
+        var appended = GetLastAppendedTimestamp(nodeId, kind);
+        var now = DateTime.UtcNow;
+        SetLastViewedTimestamp(nodeId, kind, appended > now ? appended : now);
+        ClearTabIndicator(kind);
+        ClearPendingIndicator(nodeId, kind);
+    }
+
+    private void UpdateNodeLogIndicator(string nodeId)
+    {
+        var normalized = NormalizeNodeId(nodeId);
+        var hasPending = _pendingLogIndicatorsByNode.TryGetValue(normalized, out var set) && set.Count > 0;
+        var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n =>
+            string.Equals(NormalizeNodeId(n.IdHex), normalized, StringComparison.OrdinalIgnoreCase));
+
+        if (node is null)
+            return;
+
+        var isSelected = Selected is not null
+            && string.Equals(NormalizeNodeId(Selected.IdHex), normalized, StringComparison.OrdinalIgnoreCase);
+
+        node.HasLogIndicator = hasPending && !isSelected;
+    }
 
     private static LogKind? TabIndexToLogKind(int index)
         => index switch
@@ -1262,12 +1374,28 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveNodeName) : Array.Empty<string>();
         var hopCount = hopPath.Count;
 
-        var toSnr = parsed.SnrTowards.Count > 0 ? parsed.SnrTowards[^1].ToString(CultureInfo.InvariantCulture) : "—";
-        var backSnr = parsed.SnrBack.Count > 0 ? parsed.SnrBack[^1].ToString(CultureInfo.InvariantCulture) : "—";
+        var toSnr = parsed.SnrTowards.Count > 0
+            ? FormatSnrValue(parsed.SnrTowards[^1])
+            : parsed.RxSnr.HasValue ? FormatSnrValue(parsed.RxSnr.Value) : "—";
+        var backSnr = parsed.SnrBack.Count > 0
+            ? FormatSnrValue(parsed.SnrBack[^1])
+            : parsed.RxSnr.HasValue ? FormatSnrValue(parsed.RxSnr.Value) : "—";
+
+        var snrTowardsText = parsed.SnrTowards.Count > 0
+            ? $" | snrTowards=[{string.Join(", ", parsed.SnrTowards.Select(FormatSnrValue))}]"
+            : "";
+        var snrBackText = parsed.SnrBack.Count > 0
+            ? $" | snrBack=[{string.Join(", ", parsed.SnrBack.Select(FormatSnrValue))}]"
+            : "";
+        var rxMetricsText = "";
+        if (parsed.RxSnr.HasValue)
+            rxMetricsText += $" | rxSNR={FormatSnrValue(parsed.RxSnr.Value)}";
+        if (parsed.RxRssi.HasValue)
+            rxMetricsText += $" | rxRSSI={parsed.RxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture)}";
 
         var pathText = hopNames.Any() ? string.Join(" -> ", hopNames) : "—";
 
-        return $"{tsText} | hops={hopCount} | toSNR={toSnr} backSNR={backSnr} | path: {pathText}";
+        return $"{tsText} | hops={hopCount} | toSNR={toSnr} backSNR={backSnr}{snrTowardsText}{snrBackText}{rxMetricsText} | path: {pathText}";
     }
 
     private static DateTimeOffset? TryParseTimestamp(string value)
@@ -1283,6 +1411,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var snrTowards = new List<int>();
         var routeBack = new List<uint>();
         var snrBack = new List<int>();
+        double? rxSnr = null;
+        double? rxRssi = null;
 
         var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var currentLabel = "";
@@ -1313,10 +1443,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                     if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrBk))
                         snrBack.Add(snrBk);
                     break;
+                case "rx_snr:":
+                    if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var rxSnrValue))
+                        rxSnr = rxSnrValue;
+                    break;
+                case "rx_rssi:":
+                    if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var rxRssiValue))
+                        rxRssi = rxRssiValue;
+                    break;
             }
         }
 
-        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack);
+        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi);
     }
 
     private static string ResolveNodeName(uint nodeNum)
@@ -1328,11 +1466,19 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return $"0x{nodeNum:x8}";
     }
 
+    private static string FormatSnrValue(int value)
+        => FormatSnrValue((double)value);
+
+    private static string FormatSnrValue(double value)
+        => value.ToString("0.0", CultureInfo.InvariantCulture);
+
     private readonly record struct TraceRouteParsed(
         List<uint> Route,
         List<int> SnrTowards,
         List<uint> RouteBack,
-        List<int> SnrBack);
+        List<int> SnrBack,
+        double? RxSnr,
+        double? RxRssi);
 
     private enum LogKind
     {
