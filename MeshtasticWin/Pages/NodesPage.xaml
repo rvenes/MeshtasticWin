@@ -94,7 +94,10 @@
             </StackPanel>
 
             <Border Grid.Row="4" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
-                <controls:TabView x:Name="DetailsTabs" SelectionChanged="DetailsTabs_SelectionChanged">
+                <controls:TabView x:Name="DetailsTabs"
+                                  SelectionChanged="DetailsTabs_SelectionChanged"
+                                  HorizontalContentAlignment="Stretch"
+                                  VerticalContentAlignment="Stretch">
                     <controls:TabViewItem IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -102,8 +105,10 @@
                             </StackPanel>
                         </controls:TabViewItem.Header>
                         <Border CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
-                            <Grid>
-                                <controls:WebView2 x:Name="MapView"/>
+                            <Grid RowDefinitions="*">
+                                <controls:WebView2 x:Name="MapView"
+                                                   HorizontalAlignment="Stretch"
+                                                   VerticalAlignment="Stretch"/>
                                 <TextBlock x:Name="MapFallbackText"
                                            Text="Map assets missing"
                                            Visibility="Collapsed"
