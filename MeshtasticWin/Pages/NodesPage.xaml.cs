@@ -16,6 +16,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Xml;
 using Windows.ApplicationModel;
@@ -474,7 +475,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 {
                     type = "history",
                     idHex = id,
-                    points = points.Select(p => new { lat = p.Lat, lon = p.Lon, tsUtc = p.TsUtc.ToString("o") })
+                    points = points.Select(p => new GeoPointWithTimestamp(
+                        p.Lat,
+                        p.Lon,
+                        p.TsUtc.ToString("o", CultureInfo.InvariantCulture)))
                 };
                 MapView.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
             }
@@ -777,12 +781,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var points = GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000)
             .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p.TsUtc)
-            .Select(p => new { lat = p.Lat, lon = p.Lon })
+            .Select(p => new GeoPoint(p.Lat, p.Lon))
             .ToList();
 
         SendTrackSet(nodeId, points);
         if (points.Count > 0)
-            _lastTrackPointByNode[nodeId] = (points[^1].lat, points[^1].lon);
+            _lastTrackPointByNode[nodeId] = (points[^1].Lat, points[^1].Lon);
         OnChanged(nameof(GpsTrackButtonText));
     }
 
@@ -1056,43 +1060,22 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private async System.Threading.Tasks.Task<string?> PickExportPathAsync(string suggestedName)
     {
-        if (Packaging.IsPackaged())
+        var picker = new FileSavePicker
         {
-            var picker = new FileSavePicker
-            {
-                SuggestedFileName = suggestedName
-            };
-            picker.FileTypeChoices.Add("CSV", new List<string> { ".csv" });
-            picker.FileTypeChoices.Add("GPX", new List<string> { ".gpx" });
-            picker.FileTypeChoices.Add("Text", new List<string> { ".txt" });
+            SuggestedFileName = suggestedName
+        };
+        picker.FileTypeChoices.Add("CSV", new List<string> { ".csv" });
+        picker.FileTypeChoices.Add("GPX", new List<string> { ".gpx" });
+        picker.FileTypeChoices.Add("Text", new List<string> { ".txt" });
 
-            if (App.MainWindowInstance is null)
-                return null;
+        if (App.MainWindowInstance is null)
+            return null;
 
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindowInstance);
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindowInstance);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
-            var file = await picker.PickSaveFileAsync();
-            return file?.Path;
-        }
-
-        try
-        {
-            var dialog = new Microsoft.Win32.SaveFileDialog
-            {
-                FileName = suggestedName,
-                Filter = "CSV (*.csv)|*.csv|GPX (*.gpx)|*.gpx|Text (*.txt)|*.txt|All files (*.*)|*.*",
-                DefaultExt = ".csv",
-                AddExtension = true
-            };
-
-            return dialog.ShowDialog() == true ? dialog.FileName : null;
-        }
-        catch
-        {
-            var fallbackPath = Path.Combine(AppDataPaths.LogsPath, $"{suggestedName}.csv");
-            return fallbackPath;
-        }
+        var file = await picker.PickSaveFileAsync();
+        return file?.Path;
     }
 
     private static string BuildPositionLogTxt(IEnumerable<PositionLogEntry> entries)
@@ -1168,7 +1151,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return needsQuotes ? $"\"{escaped}\"" : escaped;
     }
 
-    private void ClearDeviceMetrics_Click(object sender, RoutedEventArgs _)
+    private void ClearDeviceMetrics_Click(object _, RoutedEventArgs _1)
     {
         if (Selected is null) return;
         DeviceMetricsLogService.ClearSamples(Selected.IdHex);
@@ -1176,7 +1159,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
     }
 
-    private async void SaveDeviceMetrics_Click(object sender, RoutedEventArgs _)
+    private async void SaveDeviceMetrics_Click(object _, RoutedEventArgs _1)
     {
         if (Selected is null)
             return;
@@ -1661,12 +1644,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             var points = GpsArchive.ReadAll(nodeId, maxPoints: 5000)
                 .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(p => p.TsUtc)
-                .Select(p => new { lat = p.Lat, lon = p.Lon })
+                .Select(p => new GeoPoint(p.Lat, p.Lon))
                 .ToList();
 
             SendTrackSet(nodeId, points);
             if (points.Count > 0)
-                _lastTrackPointByNode[nodeId] = (points[^1].lat, points[^1].lon);
+                _lastTrackPointByNode[nodeId] = (points[^1].Lat, points[^1].Lon);
         }
 
         await System.Threading.Tasks.Task.CompletedTask;
@@ -1690,7 +1673,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         SendTrackAppend(nodeId, point.Lat, point.Lon);
     }
 
-    private void SendTrackSet(string nodeId, IEnumerable<object> points)
+    private void SendTrackSet(string nodeId, IReadOnlyList<GeoPoint> points)
     {
         if (!_mapReady || MapView.CoreWebView2 is null) return;
         var payload = new { type = "trackSet", idHex = nodeId, points };
@@ -1700,7 +1683,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private void SendTrackAppend(string nodeId, double lat, double lon)
     {
         if (!_mapReady || MapView.CoreWebView2 is null) return;
-        var payload = new { type = "trackAppend", idHex = nodeId, point = new { lat, lon } };
+        var payload = new { type = "trackAppend", idHex = nodeId, point = new GeoPoint(lat, lon) };
         MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
     }
 
@@ -1756,6 +1739,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     }
 
     private sealed record PositionLogKey(DateTime TimestampUtc, double Lat, double Lon);
+
+    private sealed record GeoPointWithTimestamp(
+        [property: JsonPropertyName("lat")] double Lat,
+        [property: JsonPropertyName("lon")] double Lon,
+        [property: JsonPropertyName("tsUtc")] string TsUtc);
 
     internal sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string Src, string DisplayText)
     {
