@@ -53,9 +53,6 @@ public sealed partial class MainWindow : Window
             case "nodes":
                 ContentFrame.Navigate(typeof(Pages.NodesPage));
                 break;
-            case "map":
-                ContentFrame.Navigate(typeof(Pages.MapPage));
-                break;
             case "settings":
                 ContentFrame.Navigate(typeof(Pages.SettingsPage));
                 break;

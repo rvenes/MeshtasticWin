@@ -16,7 +16,6 @@
   <ItemGroup>
     <None Remove="Assets\Map\map.html" />
     <None Remove="Pages\ConnectPage.xaml" />
-    <None Remove="Pages\MapPage.xaml" />
     <None Remove="Pages\MessagesPage.xaml" />
     <None Remove="Pages\NodesPage.xaml" />
     <None Remove="Pages\SettingsPage.xaml" />
@@ -57,9 +56,6 @@
   </ItemGroup>
   <ItemGroup>
     <Page Update="Pages\ConnectPage.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Pages\MapPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Pages\MessagesPage.xaml">

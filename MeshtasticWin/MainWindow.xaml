@@ -16,7 +16,6 @@
                 <NavigationViewItem Content="Messages" Tag="messages" />
                 <NavigationViewItem Content="Connect" Tag="connect" />
                 <NavigationViewItem Content="Nodes" Tag="nodes" />
-                <NavigationViewItem Content="Mesh Map" Tag="map" />
                 <NavigationViewItem Content="Settings" Tag="settings" />
             </NavigationView.MenuItems>
 
