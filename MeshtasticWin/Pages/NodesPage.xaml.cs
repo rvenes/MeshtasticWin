@@ -1,5 +1,6 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using Microsoft.Web.WebView2.Core;
@@ -15,6 +16,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Windows.ApplicationModel;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.System;
 
 namespace MeshtasticWin.Pages;
@@ -55,13 +58,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private bool _powerMetricsTabIndicator;
     private bool _detectionSensorTabIndicator;
 
-    private string _deviceMetricsLogText = "No log entries yet.";
     private string _traceRouteLogText = "No log entries yet.";
     private string _powerMetricsLogText = "No log entries yet.";
     private string _detectionSensorLogText = "No log entries yet.";
 
     internal ObservableCollection<PositionLogEntry> PositionLogEntries { get; } = new();
     private PositionLogEntry? _selectedPositionEntry;
+    internal ObservableCollection<DeviceMetricSample> DeviceMetricSamples { get; } = new();
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -88,7 +91,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 _selected.HasLogIndicator = false;
                 ApplyPendingIndicatorsForSelectedNode();
                 RefreshSelectedNodeLogs();
-                DetailsTabs.SelectedIndex = 0;
             }
 
             _ = PushSelectionToMapAsync();
@@ -119,16 +121,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             ? $"Trace Route ({_traceRouteRemainingSeconds}s)"
             : "Trace Route";
 
-    public string DeviceMetricsLogText
-    {
-        get => _deviceMetricsLogText;
-        private set
-        {
-            if (_deviceMetricsLogText == value) return;
-            _deviceMetricsLogText = value;
-            OnChanged(nameof(DeviceMetricsLogText));
-        }
-    }
+    public string DeviceMetricsCountText => $"Readings Total: {DeviceMetricSamples.Count}";
+
+    public IEnumerable<DeviceMetricSample> DeviceMetricChartSamples =>
+        DeviceMetricSamples.OrderBy(sample => sample.Timestamp);
 
     public string TraceRouteLogText
     {
@@ -185,6 +181,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         InitializeComponent();
 
+        DeviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
+
         AgeFilterCombo.Items.Add("Show all");
         AgeFilterCombo.Items.Add("Hide > 1 week");
         AgeFilterCombo.Items.Add("Hide > 2 weeks");
@@ -221,6 +219,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         foreach (var n in MeshtasticWin.AppState.Nodes)
             n.PropertyChanged -= Node_PropertyChanged;
 
+        DeviceMetricsLogService.SampleAdded -= DeviceMetricsLogService_SampleAdded;
         _logPollTimer.Stop();
     }
 
@@ -229,6 +228,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         await EnsureMapAsync();
         await PushAllNodesToMapAsync();
         await PushSelectionToMapAsync();
+        DeviceMetricsLogService.SampleAdded += DeviceMetricsLogService_SampleAdded;
         _logPollTimer.Start();
     }
 
@@ -777,6 +777,74 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void DeviceMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnChanged(nameof(DeviceMetricsCountText));
+        OnChanged(nameof(DeviceMetricChartSamples));
+    }
+
+    private void DeviceMetricsLogService_SampleAdded(string nodeId, DeviceMetricSample sample)
+    {
+        if (Selected is null || !string.Equals(NormalizeNodeId(Selected.IdHex), nodeId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var viewer = FindScrollViewer(DeviceMetricsLogList);
+        var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
+        var priorOffset = viewer?.VerticalOffset ?? 0;
+
+        if (DeviceMetricSamples.Count > 0 && DeviceMetricSamples[0].Timestamp == sample.Timestamp)
+            return;
+
+        DeviceMetricSamples.Insert(0, sample);
+        if (DeviceMetricSamples.Count > 2000)
+            DeviceMetricSamples.RemoveAt(DeviceMetricSamples.Count - 1);
+
+        if (viewer is not null)
+        {
+            var targetOffset = wasAtTop ? 0 : priorOffset;
+            _ = DispatcherQueue.TryEnqueue(() => viewer.ChangeView(null, targetOffset, null, true));
+        }
+    }
+
+    private void RefreshDeviceMetricsSamples()
+    {
+        if (Selected is null)
+            return;
+
+        var viewer = FindScrollViewer(DeviceMetricsLogList);
+        var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
+        var priorOffset = viewer?.VerticalOffset ?? 0;
+
+        var samples = DeviceMetricsLogService.GetSamples(Selected.IdHex, maxSamples: 2000);
+        DeviceMetricSamples.Clear();
+        foreach (var sample in samples)
+            DeviceMetricSamples.Add(sample);
+
+        if (viewer is not null)
+        {
+            var targetOffset = wasAtTop ? 0 : priorOffset;
+            _ = DispatcherQueue.TryEnqueue(() => viewer.ChangeView(null, targetOffset, null, true));
+        }
+    }
+
+    private void RefreshPositionEntries()
+    {
+        var viewer = FindScrollViewer(PositionLogList);
+        var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
+        var priorOffset = viewer?.VerticalOffset ?? 0;
+
+        var positionEntries = ReadPositionEntries();
+        PositionLogEntries.Clear();
+        foreach (var entry in positionEntries)
+            PositionLogEntries.Add(entry);
+
+        if (viewer is not null)
+        {
+            var targetOffset = wasAtTop ? 0 : priorOffset;
+            _ = DispatcherQueue.TryEnqueue(() => viewer.ChangeView(null, targetOffset, null, true));
+        }
+    }
+
     private async void OpenMaps_Click(object sender, RoutedEventArgs _)
     {
         if (_selectedPositionEntry is null) return;
@@ -784,6 +852,45 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var lon = _selectedPositionEntry.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
         var uri = new Uri($"https://www.google.com/maps/search/?api=1&query={lat},{lon}");
         await Launcher.LaunchUriAsync(uri);
+    }
+
+    private void ClearDeviceMetrics_Click(object sender, RoutedEventArgs _)
+    {
+        if (Selected is null) return;
+        DeviceMetricsLogService.ClearSamples(Selected.IdHex);
+        DeviceMetricSamples.Clear();
+    }
+
+    private async void SaveDeviceMetrics_Click(object sender, RoutedEventArgs _)
+    {
+        if (Selected is null)
+            return;
+
+        var logPath = DeviceMetricsLogService.GetLogPath(Selected.IdHex);
+        if (!File.Exists(logPath))
+        {
+            await ShowStatusAsync("No device metrics log found for this node yet.");
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = $"{Selected.ShortId}_device_metrics"
+        };
+        picker.FileTypeChoices.Add("CSV", new List<string> { ".csv" });
+
+        if (App.MainWindowInstance is null)
+            return;
+
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindowInstance);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is null)
+            return;
+
+        var content = await FileIO.ReadTextAsync(await StorageFile.GetFileFromPathAsync(logPath));
+        await FileIO.WriteTextAsync(file, content);
     }
 
     private void ApplyPendingIndicatorsForSelectedNode()
@@ -805,15 +912,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (Selected is null)
             return;
 
-        DeviceMetricsLogText = ReadLogText(LogKind.DeviceMetrics);
+        RefreshDeviceMetricsSamples();
         TraceRouteLogText = ReadLogText(LogKind.TraceRoute);
         PowerMetricsLogText = ReadLogText(LogKind.PowerMetrics);
         DetectionSensorLogText = ReadLogText(LogKind.DetectionSensor);
 
-        var positionEntries = ReadPositionEntries();
-        PositionLogEntries.Clear();
-        foreach (var entry in positionEntries)
-            PositionLogEntries.Add(entry);
+        RefreshPositionEntries();
 
         _selectedPositionEntry = null;
         OnChanged(nameof(HasPositionSelection));
@@ -950,6 +1054,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         return GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000)
             .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(p => p.TsUtc)
             .Select(PositionLogEntry.FromPoint)
             .ToList();
     }
@@ -978,10 +1083,27 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
     }
 
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer viewer)
+            return viewer;
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            var result = FindScrollViewer(child);
+            if (result is not null)
+                return result;
+        }
+
+        return null;
+    }
+
     private static string GetLogFilePath(string nodeId, LogKind kind)
     {
         var safe = SanitizeNodeId(nodeId);
-        var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MeshtasticWin", "Logs");
+        var baseDir = AppDataPaths.LogsPath;
 
         return kind switch
         {
@@ -1006,6 +1128,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         return safe.ToUpperInvariant();
     }
+
+    private static string NormalizeNodeId(string idHex)
+        => $"0x{SanitizeNodeId(idHex)}";
 
     private static LogKind? TabIndexToLogKind(int index)
         => index switch
