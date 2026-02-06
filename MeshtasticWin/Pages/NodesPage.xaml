@@ -93,7 +93,12 @@
                 <Button Content="{x:Bind TraceRouteButtonText, Mode=OneWay}" Click="TraceRoute_Click" IsEnabled="{x:Bind IsTraceRouteEnabled, Mode=OneWay}"/>
             </StackPanel>
 
-            <Border Grid.Row="4" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
+            <Border Grid.Row="4"
+                    CornerRadius="10"
+                    Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    MinHeight="200">
                 <controls:TabView x:Name="DetailsTabs"
                                   SelectionChanged="DetailsTabs_SelectionChanged"
                                   HorizontalContentAlignment="Stretch"
@@ -104,11 +109,18 @@
                                 <TextBlock Text="Map"/>
                             </StackPanel>
                         </controls:TabViewItem.Header>
-                        <Border CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
-                            <Grid RowDefinitions="*">
+                        <Border CornerRadius="10"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                MinHeight="200">
+                            <Grid RowDefinitions="*"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch">
                                 <controls:WebView2 x:Name="MapView"
                                                    HorizontalAlignment="Stretch"
-                                                   VerticalAlignment="Stretch"/>
+                                                   VerticalAlignment="Stretch"
+                                                   MinHeight="200"/>
                             </Grid>
                         </Border>
                     </controls:TabViewItem>
