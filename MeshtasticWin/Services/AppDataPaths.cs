@@ -16,7 +16,9 @@ public static class AppDataPaths
 
     public static string TraceroutePath => Path.Combine(LogsPath, "traceroute");
 
-    public static string GpsPath => Path.Combine(LogsPath, "gps");
+    public static string GpsLogsPath => Path.Combine(LogsPath, "gps");
+
+    public static string GpsPath => GpsLogsPath;
 
     public static void EnsureCreated()
     {
@@ -28,21 +30,19 @@ public static class AppDataPaths
         Directory.CreateDirectory(BasePath);
         Directory.CreateDirectory(LogsPath);
         Directory.CreateDirectory(TraceroutePath);
-        Directory.CreateDirectory(GpsPath);
+        Directory.CreateDirectory(GpsLogsPath);
 
         Debug.WriteLine($"Log base path resolved to: {BasePath}");
     }
 
     private static string ResolveBasePath()
     {
-        try
+        if (Packaging.IsPackaged())
         {
             var localFolder = ApplicationData.Current.LocalFolder.Path;
             return Path.Combine(localFolder, "MeshtasticWin");
         }
-        catch
-        {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MeshtasticWin");
-        }
+
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MeshtasticWin");
     }
 }
