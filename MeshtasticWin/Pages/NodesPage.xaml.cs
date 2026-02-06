@@ -744,6 +744,25 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         await EnsureMapAsync();
         _ = MapView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
+        LogMapSizing();
+    }
+
+    private void LogMapSizing()
+    {
+        var mapWidth = MapView.ActualWidth;
+        var mapHeight = MapView.ActualHeight;
+        var parent = MapView.Parent as FrameworkElement;
+        var parentWidth = parent?.ActualWidth ?? 0;
+        var parentHeight = parent?.ActualHeight ?? 0;
+
+        RadioClient.Instance.AddLogFromUiThread(
+            $"Map WebView2 size: {mapWidth:0.##}x{mapHeight:0.##} (parent: {parentWidth:0.##}x{parentHeight:0.##})");
+
+        if (mapWidth <= 1 || mapHeight <= 1 || parentWidth <= 1 || parentHeight <= 1)
+        {
+            RadioClient.Instance.AddLogFromUiThread(
+                $"Map WebView2 size warning: map={mapWidth:0.##}x{mapHeight:0.##}, parent={parentWidth:0.##}x{parentHeight:0.##}");
+        }
     }
 
     private void PositionLogList_SelectionChanged(object sender, SelectionChangedEventArgs _)
