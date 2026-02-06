@@ -720,7 +720,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private async void TraceRoute_Click(object sender, RoutedEventArgs _)
         => await SendTraceRouteAsync();
 
-    private void DetailsTabs_SelectionChanged(object sender, SelectionChangedEventArgs _)
+    private async void DetailsTabs_SelectionChanged(object sender, SelectionChangedEventArgs _)
     {
         if (DetailsTabs.SelectedIndex < 0) return;
 
