@@ -79,9 +79,10 @@
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Top">
                         <Button Content="Send DM" Click="SendDm_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
-                        <Button Content="Load GPS track" Click="ReadGpsLog_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                        <Button Content="{x:Bind GpsTrackButtonText, Mode=OneWay}" Click="ToggleGpsTrack_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
                         <Button Content="Zoom" Click="ZoomToNode_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
                         <Button Content="Fit" Click="FitAll_Click"/>
+                        <Button Content="Reset map" Click="ResetMap_Click"/>
                     </StackPanel>
 
                     <TextBlock Grid.Row="4" Text="{x:Bind SelectedExtraText, Mode=OneWay}" Opacity="0.75" TextWrapping="Wrap"/>

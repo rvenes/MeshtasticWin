@@ -93,6 +93,7 @@
 
     const markers = new Map(); // idHex -> L.Marker
     const labels  = new Map(); // idHex -> L.Marker (divIcon)
+    const tracks = new Map(); // nodeId -> { polyline, markersLayer, pointsCount }
     let selectedId = null;
     let peekMarker = null;
     let peekTimer = null;
@@ -258,6 +259,88 @@
       }, 10000);
     }
 
+    function clearPeek(){
+      if (peekMarker) { map.removeLayer(peekMarker); peekMarker = null; }
+      if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+    }
+
+    function trackColor(nodeId){
+      let hash = 0;
+      for (let i = 0; i < nodeId.length; i++){
+        hash = ((hash << 5) - hash) + nodeId.charCodeAt(i);
+        hash |= 0;
+      }
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue}, 70%, 50%)`;
+    }
+
+    function ensureTrack(nodeId){
+      if (tracks.has(nodeId)) return tracks.get(nodeId);
+      const color = trackColor(nodeId);
+      const polyline = L.polyline([], { color, weight: 3, opacity: 0.9 });
+      const markersLayer = L.layerGroup();
+      polyline.addTo(map);
+      markersLayer.addTo(map);
+      const entry = { polyline, markersLayer, pointsCount: 0 };
+      tracks.set(nodeId, entry);
+      return entry;
+    }
+
+    function mwTrackSet(nodeId, pointsArray){
+      mwTrackClear(nodeId);
+      if (!pointsArray || pointsArray.length === 0) return;
+      const entry = ensureTrack(nodeId);
+      const latLngs = pointsArray.map(p => [p.lat, p.lon]);
+      entry.polyline.setLatLngs(latLngs);
+      for (const p of pointsArray){
+        const marker = L.circleMarker([p.lat, p.lon], {
+          radius: 4,
+          color: entry.polyline.options.color,
+          weight: 2,
+          fillColor: entry.polyline.options.color,
+          fillOpacity: 0.85
+        });
+        marker.addTo(entry.markersLayer);
+      }
+      entry.pointsCount = pointsArray.length;
+    }
+
+    function mwTrackAppend(nodeId, point){
+      if (!point) return;
+      const entry = ensureTrack(nodeId);
+      entry.polyline.addLatLng([point.lat, point.lon]);
+      const marker = L.circleMarker([point.lat, point.lon], {
+        radius: 4,
+        color: entry.polyline.options.color,
+        weight: 2,
+        fillColor: entry.polyline.options.color,
+        fillOpacity: 0.85
+      });
+      marker.addTo(entry.markersLayer);
+      entry.pointsCount += 1;
+    }
+
+    function mwTrackClear(nodeId){
+      const entry = tracks.get(nodeId);
+      if (!entry) return;
+      map.removeLayer(entry.polyline);
+      map.removeLayer(entry.markersLayer);
+      tracks.delete(nodeId);
+    }
+
+    function mwTrackClearAll(){
+      const nodeIds = Array.from(tracks.keys());
+      for (const nodeId of nodeIds){
+        mwTrackClear(nodeId);
+      }
+      clearPeek();
+    }
+
+    window.mwTrackSet = mwTrackSet;
+    window.mwTrackAppend = mwTrackAppend;
+    window.mwTrackClear = mwTrackClear;
+    window.mwTrackClearAll = mwTrackClearAll;
+
     if (web){
       web.addEventListener('message', (ev) => {
         const msg = ev.data;
@@ -268,6 +351,11 @@
         if (msg.type === "fitAll") { fitAll(); return; }
         if (msg.type === "zoomTo") { zoomTo(msg.idHex); return; }
         if (msg.type === "positionPeek") { showPositionPeek(msg.lat, msg.lon); return; }
+        if (msg.type === "history") { mwTrackSet(msg.idHex, msg.points || []); return; }
+        if (msg.type === "trackSet") { mwTrackSet(msg.idHex, msg.points || []); return; }
+        if (msg.type === "trackAppend") { mwTrackAppend(msg.idHex, msg.point); return; }
+        if (msg.type === "trackClear") { mwTrackClear(msg.idHex); return; }
+        if (msg.type === "trackClearAll") { mwTrackClearAll(); return; }
       });
     }
 

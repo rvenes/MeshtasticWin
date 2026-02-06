@@ -49,6 +49,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private bool _mapResourceLoggingAttached;
     private string? _mapFolderPath;
     private Uri? _mapUri;
+    private readonly HashSet<string> _enabledTrackNodeIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (double Lat, double Lon)> _lastTrackPointByNode = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastLogWriteByNode = new();
     private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastViewedByNode = new();
@@ -89,6 +91,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedExtraText));
             OnChanged(nameof(IsTraceRouteEnabled));
             OnChanged(nameof(TraceRouteButtonText));
+            OnChanged(nameof(GpsTrackButtonText));
 
             if (_selected is not null)
             {
@@ -122,6 +125,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public string SelectedExtraText => Selected is null ? "" : $"Long name: {Selected.LongName}   Short name: {Selected.ShortName}";
 
     public bool IsTraceRouteEnabled => HasSelection && !_traceRouteCooldownActive;
+
+    public string GpsTrackButtonText => IsSelectedTrackEnabled ? "Hide GPS track" : "Load GPS track";
 
     public string TraceRouteButtonText =>
         _traceRouteCooldownActive
@@ -395,6 +400,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 RadioClient.Instance.AddLogFromUiThread("Map ready message received.");
                 _ = PushAllNodesToMapAsync();
                 _ = PushSelectionToMapAsync();
+                _ = PushEnabledTracksToMapAsync();
                 return;
             }
 
@@ -550,6 +556,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             RebuildFiltered();
             TriggerMapUpdate();
         }
+
+        if (sender is NodeLive updatedNode
+            && (e.PropertyName is nameof(NodeLive.Latitude) or nameof(NodeLive.Longitude)))
+        {
+            TryAppendTrackPoint(updatedNode);
+        }
     }
 
     private bool IsOnlineByRssi(NodeLive n)
@@ -704,11 +716,39 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "zoomTo", idHex = Selected.IdHex }, s_jsonOptions));
     }
 
-    private void ReadGpsLog_Click(object sender, RoutedEventArgs e)
+    private void ToggleGpsTrack_Click(object sender, RoutedEventArgs e)
     {
-        if (!_mapReady || MapView.CoreWebView2 is null) return;
         if (Selected is null) return;
-        MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "requestHistory", idHex = Selected.IdHex }, s_jsonOptions));
+
+        var nodeId = NormalizeNodeId(Selected.IdHex);
+        if (_enabledTrackNodeIds.Contains(nodeId))
+        {
+            _enabledTrackNodeIds.Remove(nodeId);
+            _lastTrackPointByNode.Remove(nodeId);
+            SendTrackClear(nodeId);
+            OnChanged(nameof(GpsTrackButtonText));
+            return;
+        }
+
+        _enabledTrackNodeIds.Add(nodeId);
+        var points = GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000)
+            .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p.TsUtc)
+            .Select(p => new { lat = p.Lat, lon = p.Lon })
+            .ToList();
+
+        SendTrackSet(nodeId, points);
+        if (points.Count > 0)
+            _lastTrackPointByNode[nodeId] = (points[^1].lat, points[^1].lon);
+        OnChanged(nameof(GpsTrackButtonText));
+    }
+
+    private void ResetMap_Click(object sender, RoutedEventArgs e)
+    {
+        _enabledTrackNodeIds.Clear();
+        _lastTrackPointByNode.Clear();
+        SendTrackClearAll();
+        OnChanged(nameof(GpsTrackButtonText));
     }
 
     private void SendDm_Click(object sender, RoutedEventArgs e)
@@ -1343,6 +1383,74 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (!_mapReady || MapView.CoreWebView2 is null) return;
         var payload = new { type = "positionPeek", lat, lon };
         MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
+    }
+
+    private bool IsSelectedTrackEnabled
+        => Selected is not null && _enabledTrackNodeIds.Contains(NormalizeNodeId(Selected.IdHex));
+
+    private async System.Threading.Tasks.Task PushEnabledTracksToMapAsync()
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+
+        foreach (var nodeId in _enabledTrackNodeIds.ToList())
+        {
+            var points = GpsArchive.ReadAll(nodeId, maxPoints: 5000)
+                .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(p => p.TsUtc)
+                .Select(p => new { lat = p.Lat, lon = p.Lon })
+                .ToList();
+
+            SendTrackSet(nodeId, points);
+            if (points.Count > 0)
+                _lastTrackPointByNode[nodeId] = (points[^1].lat, points[^1].lon);
+        }
+
+        await System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    private void TryAppendTrackPoint(NodeLive node)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        if (!node.HasPosition) return;
+        var nodeId = NormalizeNodeId(node.IdHex);
+        if (!_enabledTrackNodeIds.Contains(nodeId)) return;
+
+        var point = (Lat: node.Latitude, Lon: node.Longitude);
+        if (_lastTrackPointByNode.TryGetValue(nodeId, out var lastPoint))
+        {
+            if (Math.Abs(lastPoint.Lat - point.Lat) < 0.0000001 && Math.Abs(lastPoint.Lon - point.Lon) < 0.0000001)
+                return;
+        }
+
+        _lastTrackPointByNode[nodeId] = point;
+        SendTrackAppend(nodeId, point.Lat, point.Lon);
+    }
+
+    private void SendTrackSet(string nodeId, IEnumerable<object> points)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        var payload = new { type = "trackSet", idHex = nodeId, points };
+        MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
+    }
+
+    private void SendTrackAppend(string nodeId, double lat, double lon)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        var payload = new { type = "trackAppend", idHex = nodeId, point = new { lat, lon } };
+        MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
+    }
+
+    private void SendTrackClear(string nodeId)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        var payload = new { type = "trackClear", idHex = nodeId };
+        MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
+    }
+
+    private void SendTrackClearAll()
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        MapView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"trackClearAll\"}");
     }
 
     internal sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string DisplayText)
