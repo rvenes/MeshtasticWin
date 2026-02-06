@@ -290,7 +290,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
 
         var installPath = ResolveInstallPath();
-        _mapFolderPath = Path.GetFullPath(Path.Combine(installPath, "Assets", "Map"));
+        _mapFolderPath = Path.GetFullPath(Path.Combine(installPath, "Assets"));
         RadioClient.Instance.AddLogFromUiThread($"Map assets path: {_mapFolderPath}");
 
         if (!Directory.Exists(_mapFolderPath))
@@ -301,7 +301,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return;
         }
 
-        var mapHtml = Path.Combine(_mapFolderPath, "map.html");
+        var mapHtml = Path.Combine(_mapFolderPath, "Map", "map.html");
         if (!File.Exists(mapHtml))
         {
             RadioClient.Instance.AddLogFromUiThread($"Map HTML missing: {mapHtml}");
@@ -310,7 +310,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return;
         }
 
-        _mapUri = new Uri("https://appassets.local/map.html");
+        _mapUri = new Uri("https://appassets.local/Map/map.html");
         RadioClient.Instance.AddLogFromUiThread($"Map navigation URI: {_mapUri}");
 
         try
@@ -452,6 +452,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             RadioClient.Instance.AddLogFromUiThread($"Map navigation completed: {uri}");
             HideMapFallback();
+            _ = MapView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
             return;
         }
 
@@ -719,9 +720,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private async void TraceRoute_Click(object sender, RoutedEventArgs _)
         => await SendTraceRouteAsync();
 
-    private void DetailsTabs_SelectionChanged(object sender, SelectionChangedEventArgs _)
+    private async void DetailsTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DetailsTabs.SelectedIndex < 0) return;
+
+        if (DetailsTabs.SelectedIndex == 0)
+        {
+            await HandleMapTabSelectedAsync();
+        }
 
         var logKind = TabIndexToLogKind(DetailsTabs.SelectedIndex);
         if (logKind is null) return;
@@ -731,6 +737,32 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             ClearPendingIndicator(Selected.IdHex, logKind.Value);
 
         RefreshSelectedNodeLogs();
+
+    }
+
+    private async System.Threading.Tasks.Task HandleMapTabSelectedAsync()
+    {
+        await EnsureMapAsync();
+        _ = MapView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
+        LogMapSizing();
+    }
+
+    private void LogMapSizing()
+    {
+        var mapWidth = MapView.ActualWidth;
+        var mapHeight = MapView.ActualHeight;
+        var parent = MapView.Parent as FrameworkElement;
+        var parentWidth = parent?.ActualWidth ?? 0;
+        var parentHeight = parent?.ActualHeight ?? 0;
+
+        RadioClient.Instance.AddLogFromUiThread(
+            $"Map WebView2 size: {mapWidth:0.##}x{mapHeight:0.##} (parent: {parentWidth:0.##}x{parentHeight:0.##})");
+
+        if (mapWidth <= 1 || mapHeight <= 1 || parentWidth <= 1 || parentHeight <= 1)
+        {
+            RadioClient.Instance.AddLogFromUiThread(
+                $"Map WebView2 size warning: map={mapWidth:0.##}x{mapHeight:0.##}, parent={parentWidth:0.##}x{parentHeight:0.##}");
+        }
     }
 
     private void PositionLogList_SelectionChanged(object sender, SelectionChangedEventArgs _)

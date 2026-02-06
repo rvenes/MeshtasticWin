@@ -64,7 +64,7 @@
         </Grid>
 
         <!-- RIGHT -->
-        <Grid Grid.Column="2" RowDefinitions="Auto,8,Auto,8,*">
+        <Grid Grid.Column="2" RowDefinitions="Auto,8,Auto,8,*,Auto">
             <!-- More height here: info + buttons fit without covering the position text. -->
             <Border CornerRadius="10" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <Grid RowDefinitions="Auto,6,Auto,6,Auto" ColumnDefinitions="Auto,*,Auto">
@@ -94,7 +94,10 @@
             </StackPanel>
 
             <Border Grid.Row="4" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
-                <controls:TabView x:Name="DetailsTabs" SelectionChanged="DetailsTabs_SelectionChanged">
+                <controls:TabView x:Name="DetailsTabs"
+                                  SelectionChanged="DetailsTabs_SelectionChanged"
+                                  HorizontalContentAlignment="Stretch"
+                                  VerticalContentAlignment="Stretch">
                     <controls:TabViewItem IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -102,16 +105,10 @@
                             </StackPanel>
                         </controls:TabViewItem.Header>
                         <Border CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefault}">
-                            <Grid>
-                                <controls:WebView2 x:Name="MapView"/>
-                                <TextBlock x:Name="MapFallbackText"
-                                           Text="Map assets missing"
-                                           Visibility="Collapsed"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="Wrap"
-                                           FontSize="16"
-                                           Opacity="0.8"/>
+                            <Grid RowDefinitions="*">
+                                <controls:WebView2 x:Name="MapView"
+                                                   HorizontalAlignment="Stretch"
+                                                   VerticalAlignment="Stretch"/>
                             </Grid>
                         </Border>
                     </controls:TabViewItem>
@@ -206,6 +203,17 @@
                     </controls:TabViewItem>
                 </controls:TabView>
             </Border>
+
+            <TextBlock Grid.Row="5"
+                       x:Name="MapFallbackText"
+                       Text="Map assets missing"
+                       Visibility="Collapsed"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"
+                       FontSize="16"
+                       Opacity="0.8"
+                       Margin="0,8,0,0"/>
         </Grid>
     </Grid>
 </Page>
