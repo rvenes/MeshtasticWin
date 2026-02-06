@@ -2,7 +2,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using Microsoft.Web.WebView2.Core;
@@ -181,7 +180,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         InitializeComponent();
 
         DeviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
-        DeviceMetricsChartCanvas.SizeChanged += DeviceMetricsChartCanvas_SizeChanged;
 
         AgeFilterCombo.Items.Add("Show all");
         AgeFilterCombo.Items.Add("Hide > 1 week");
@@ -780,11 +778,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private void DeviceMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnChanged(nameof(DeviceMetricsCountText));
-        RenderDeviceMetricsChart();
+        DeviceMetricsGraph.SetSamples(DeviceMetricSamples);
     }
-
-    private void DeviceMetricsChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
-        => RenderDeviceMetricsChart();
 
     private void DeviceMetricsLogService_SampleAdded(string nodeId, DeviceMetricSample sample)
     {
@@ -823,7 +818,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         foreach (var sample in samples)
             DeviceMetricSamples.Add(sample);
 
-        RenderDeviceMetricsChart();
+        DeviceMetricsGraph.SetSamples(DeviceMetricSamples);
 
         if (viewer is not null)
         {
@@ -864,7 +859,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (Selected is null) return;
         DeviceMetricsLogService.ClearSamples(Selected.IdHex);
         DeviceMetricSamples.Clear();
-        RenderDeviceMetricsChart();
+        DeviceMetricsGraph.SetSamples(DeviceMetricSamples);
     }
 
     private async void SaveDeviceMetrics_Click(object sender, RoutedEventArgs _)
@@ -1104,84 +1099,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
 
         return null;
-    }
-
-    private void RenderDeviceMetricsChart()
-    {
-        if (DeviceMetricsChartCanvas is null || BatteryLine is null || ChannelLine is null || AirtimeLine is null)
-            return;
-
-        var width = DeviceMetricsChartCanvas.ActualWidth;
-        var height = DeviceMetricsChartCanvas.ActualHeight;
-        if (width <= 0 || height <= 0)
-        {
-            BatteryLine.Points.Clear();
-            ChannelLine.Points.Clear();
-            AirtimeLine.Points.Clear();
-            return;
-        }
-
-        var samples = DeviceMetricSamples
-            .OrderBy(s => s.Timestamp)
-            .ToList();
-
-        if (samples.Count == 0)
-        {
-            BatteryLine.Points.Clear();
-            ChannelLine.Points.Clear();
-            AirtimeLine.Points.Clear();
-            return;
-        }
-
-        var minTs = samples.First().Timestamp;
-        var maxTs = samples.Last().Timestamp;
-        var totalSeconds = Math.Max(1, (maxTs - minTs).TotalSeconds);
-
-        var hasVoltage = samples.Any(s => s.BatteryVolts.HasValue);
-        var batteryMin = hasVoltage ? 3.0 : 0.0;
-        var batteryMax = hasVoltage ? 4.3 : 100.0;
-
-        BatteryLine.Points = BuildPoints(samples, width, height, totalSeconds, minTs,
-            sample => hasVoltage ? sample.BatteryVolts : sample.BatteryPercent,
-            batteryMin, batteryMax);
-
-        ChannelLine.Points = BuildPoints(samples, width, height, totalSeconds, minTs,
-            sample => sample.ChannelUtilization,
-            0, 100);
-
-        AirtimeLine.Points = BuildPoints(samples, width, height, totalSeconds, minTs,
-            sample => sample.Airtime,
-            0, 100);
-    }
-
-    private static PointCollection BuildPoints(
-        IReadOnlyList<DeviceMetricSample> samples,
-        double width,
-        double height,
-        double totalSeconds,
-        DateTime minTs,
-        Func<DeviceMetricSample, double?> selector,
-        double minY,
-        double maxY)
-    {
-        var points = new PointCollection();
-        var range = Math.Max(1e-6, maxY - minY);
-
-        foreach (var sample in samples)
-        {
-            var value = selector(sample);
-            if (!value.HasValue)
-                continue;
-
-            var seconds = Math.Max(0, (sample.Timestamp - minTs).TotalSeconds);
-            var x = width * (seconds / totalSeconds);
-            var clamped = Math.Max(minY, Math.Min(maxY, value.Value));
-            var normalized = (clamped - minY) / range;
-            var y = height - (height * normalized);
-            points.Add(new Windows.Foundation.Point(x, y));
-        }
-
-        return points;
     }
 
     private static string GetLogFilePath(string nodeId, LogKind kind)

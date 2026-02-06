@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:MeshtasticWin.Models"
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
-    xmlns:charting="using:CommunityToolkit.WinUI.UI.Controls.DataVisualization.Charting">
+    xmlns:localcontrols="using:MeshtasticWin.Controls">
 
     <Grid Padding="12">
         <Grid.ColumnDefinitions>
@@ -157,20 +157,9 @@
                                         <TextBlock Text="Airtime"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <Canvas Grid.Row="1"
-                                        x:Name="DeviceMetricsChartCanvas"
-                                        Height="220"
-                                        Background="{ThemeResource CardBackgroundFillColorDefault}">
-                                    <Polyline x:Name="BatteryLine"
-                                              Stroke="#FF4CAF50"
-                                              StrokeThickness="2"/>
-                                    <Polyline x:Name="ChannelLine"
-                                              Stroke="#FF2196F3"
-                                              StrokeThickness="2"/>
-                                    <Polyline x:Name="AirtimeLine"
-                                              Stroke="#FFFF9800"
-                                              StrokeThickness="2"/>
-                                </Canvas>
+                                <localcontrols:DeviceMetricsGraph Grid.Row="1"
+                                                                  x:Name="DeviceMetricsGraph"
+                                                                  Height="220"/>
                             </Grid>
                             <ListView Grid.Row="2"
                                       x:Name="DeviceMetricsLogList"
