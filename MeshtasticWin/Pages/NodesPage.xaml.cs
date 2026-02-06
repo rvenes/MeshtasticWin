@@ -65,7 +65,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     internal ObservableCollection<PositionLogEntry> PositionLogEntries { get; } = new();
     private PositionLogEntry? _selectedPositionEntry;
-    internal ObservableCollection<DeviceMetricSample> DeviceMetricSamples { get; } = new();
+    private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
+    public IReadOnlyList<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -122,7 +123,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             ? $"Trace Route ({_traceRouteRemainingSeconds}s)"
             : "Trace Route";
 
-    public string DeviceMetricsCountText => $"Readings Total: {DeviceMetricSamples.Count}";
+    public string DeviceMetricsCountText => $"Readings Total: {_deviceMetricSamples.Count}";
 
     public string TraceRouteLogText
     {
@@ -179,7 +180,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         InitializeComponent();
 
-        DeviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
+        _deviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
 
         AgeFilterCombo.Items.Add("Show all");
         AgeFilterCombo.Items.Add("Hide > 1 week");
@@ -778,7 +779,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private void DeviceMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnChanged(nameof(DeviceMetricsCountText));
-        DeviceMetricsGraph.SetSamples(DeviceMetricSamples);
+        DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
     }
 
     private void DeviceMetricsLogService_SampleAdded(string nodeId, DeviceMetricSample sample)
@@ -790,12 +791,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
         var priorOffset = viewer?.VerticalOffset ?? 0;
 
-        if (DeviceMetricSamples.Count > 0 && DeviceMetricSamples[0].Timestamp == sample.Timestamp)
+        if (_deviceMetricSamples.Count > 0 && _deviceMetricSamples[0].Timestamp == sample.Timestamp)
             return;
 
-        DeviceMetricSamples.Insert(0, sample);
-        if (DeviceMetricSamples.Count > 2000)
-            DeviceMetricSamples.RemoveAt(DeviceMetricSamples.Count - 1);
+        _deviceMetricSamples.Insert(0, sample);
+        if (_deviceMetricSamples.Count > 2000)
+            _deviceMetricSamples.RemoveAt(_deviceMetricSamples.Count - 1);
 
         if (viewer is not null)
         {
@@ -814,11 +815,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var priorOffset = viewer?.VerticalOffset ?? 0;
 
         var samples = DeviceMetricsLogService.GetSamples(Selected.IdHex, maxSamples: 2000);
-        DeviceMetricSamples.Clear();
+        _deviceMetricSamples.Clear();
         foreach (var sample in samples)
-            DeviceMetricSamples.Add(sample);
+            _deviceMetricSamples.Add(sample);
 
-        DeviceMetricsGraph.SetSamples(DeviceMetricSamples);
+        DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
 
         if (viewer is not null)
         {
@@ -858,8 +859,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         if (Selected is null) return;
         DeviceMetricsLogService.ClearSamples(Selected.IdHex);
-        DeviceMetricSamples.Clear();
-        DeviceMetricsGraph.SetSamples(DeviceMetricSamples);
+        _deviceMetricSamples.Clear();
+        DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
     }
 
     private async void SaveDeviceMetrics_Click(object sender, RoutedEventArgs _)
