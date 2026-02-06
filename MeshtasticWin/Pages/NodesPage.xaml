@@ -142,27 +142,36 @@
                                     <Button Content="Save" Click="SaveDeviceMetrics_Click" IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
                                 </StackPanel>
                             </Grid>
-                            <charting:Chart Grid.Row="1"
-                                            x:Name="DeviceMetricsChart"
-                                            Height="220"
-                                            Margin="0,8,0,8">
-                                <charting:Chart.Axes>
-                                    <charting:DateTimeAxis Orientation="X" IntervalType="Minutes" ShowGridLines="True"/>
-                                    <charting:LinearAxis Orientation="Y" ShowGridLines="True"/>
-                                </charting:Chart.Axes>
-                                <charting:LineSeries ItemsSource="{x:Bind DeviceMetricChartSamples, Mode=OneWay}"
-                                                     IndependentValuePath="Timestamp"
-                                                     DependentValuePath="BatteryVolts"
-                                                     Title="Battery (V)"/>
-                                <charting:AreaSeries ItemsSource="{x:Bind DeviceMetricChartSamples, Mode=OneWay}"
-                                                     IndependentValuePath="Timestamp"
-                                                     DependentValuePath="ChannelUtilization"
-                                                     Title="Channel Util (%)"/>
-                                <charting:AreaSeries ItemsSource="{x:Bind DeviceMetricChartSamples, Mode=OneWay}"
-                                                     IndependentValuePath="Timestamp"
-                                                     DependentValuePath="Airtime"
-                                                     Title="Airtime (%)"/>
-                            </charting:Chart>
+                            <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="0,8,0,8">
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="8" Height="8" Fill="#FF4CAF50"/>
+                                        <TextBlock Text="Battery"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="8" Height="8" Fill="#FF2196F3"/>
+                                        <TextBlock Text="Channel Utilization"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="8" Height="8" Fill="#FFFF9800"/>
+                                        <TextBlock Text="Airtime"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <Canvas Grid.Row="1"
+                                        x:Name="DeviceMetricsChartCanvas"
+                                        Height="220"
+                                        Background="{ThemeResource CardBackgroundFillColorDefault}">
+                                    <Polyline x:Name="BatteryLine"
+                                              Stroke="#FF4CAF50"
+                                              StrokeThickness="2"/>
+                                    <Polyline x:Name="ChannelLine"
+                                              Stroke="#FF2196F3"
+                                              StrokeThickness="2"/>
+                                    <Polyline x:Name="AirtimeLine"
+                                              Stroke="#FFFF9800"
+                                              StrokeThickness="2"/>
+                                </Canvas>
+                            </Grid>
                             <ListView Grid.Row="2"
                                       x:Name="DeviceMetricsLogList"
                                       ItemsSource="{x:Bind DeviceMetricSamples, Mode=OneWay}"
