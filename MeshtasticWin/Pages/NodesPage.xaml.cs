@@ -1,6 +1,7 @@
 ﻿using AppDataPaths = MeshtasticWin.Services.AppDataPaths;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
@@ -16,6 +17,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using System.Xml;
 using Windows.ApplicationModel;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -69,6 +71,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     internal ObservableCollection<PositionLogEntry> PositionLogEntries { get; } = new();
     private PositionLogEntry? _selectedPositionEntry;
+    private int _positionLogRetentionDays = 7;
     private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
     public IReadOnlyList<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
 
@@ -88,7 +91,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedNodeNumText));
             OnChanged(nameof(SelectedLastHeardText));
             OnChanged(nameof(SelectedPosText));
-            OnChanged(nameof(SelectedExtraText));
+            OnChanged(nameof(SelectedShortNameText));
+            OnChanged(nameof(HasSelectedPosition));
             OnChanged(nameof(IsTraceRouteEnabled));
             OnChanged(nameof(TraceRouteButtonText));
             OnChanged(nameof(GpsTrackButtonText));
@@ -108,21 +112,58 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     }
 
     public bool HasSelection => Selected is not null;
+    public bool HasSelectedPosition => Selected?.HasPosition ?? false;
 
     public string SelectedTitle => Selected?.Name ?? "Select a node";
     public string SelectedIdHex => Selected?.IdHex ?? "—";
-    public string SelectedNodeNumText => Selected is null ? "—" : $"nodeNum: {Selected.NodeNum}";
-    public string SelectedLastHeardText => Selected is null ? "—" : $"last heard: {Selected.LastHeard}";
+    public string SelectedNodeNumText => Selected is null || Selected.NodeNum == 0 ? "—" : Selected.NodeNum.ToString(CultureInfo.InvariantCulture);
+    public string SelectedLastHeardText
+    {
+        get
+        {
+            if (Selected is null || Selected.LastHeardUtc == DateTime.MinValue)
+                return "—";
+
+            var local = Selected.LastHeardUtc.ToLocalTime();
+            var relative = FormatRelativeAge(Selected.LastHeardUtc);
+            return $"{local:HH:mm:ss} ({relative})";
+        }
+    }
     public string SelectedPosText
     {
         get
         {
-            if (Selected is null) return "position: —";
-            if (!Selected.HasPosition) return "position: —";
-            return $"position: {Selected.Latitude:0.000000},{Selected.Longitude:0.000000} ({Selected.LastPositionText})";
+            if (Selected is null || !Selected.HasPosition)
+                return "—";
+
+            var lat = Selected.Latitude.ToString("0.000000", CultureInfo.InvariantCulture);
+            var lon = Selected.Longitude.ToString("0.000000", CultureInfo.InvariantCulture);
+            var relative = FormatRelativeAge(Selected.LastPositionUtc);
+            return $"{lat}, {lon} ({relative})";
         }
     }
-    public string SelectedExtraText => Selected is null ? "" : $"Long name: {Selected.LongName}   Short name: {Selected.ShortName}";
+    public string SelectedShortNameText
+    {
+        get
+        {
+            if (Selected is null)
+                return "—";
+
+            return string.IsNullOrWhiteSpace(Selected.ShortName) ? "—" : Selected.ShortName;
+        }
+    }
+
+    public double PositionLogRetentionDaysValue
+    {
+        get => _positionLogRetentionDays;
+        set
+        {
+            var next = (int)Math.Max(1, Math.Round(value));
+            if (_positionLogRetentionDays == next) return;
+            _positionLogRetentionDays = next;
+            OnChanged(nameof(PositionLogRetentionDaysValue));
+        }
+    }
 
     public bool IsTraceRouteEnabled => HasSelection && !_traceRouteCooldownActive;
 
@@ -544,7 +585,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             OnChanged(nameof(SelectedLastHeardText));
             OnChanged(nameof(SelectedPosText));
-            OnChanged(nameof(SelectedExtraText));
+            OnChanged(nameof(SelectedShortNameText));
+            OnChanged(nameof(SelectedNodeNumText));
+            OnChanged(nameof(HasSelectedPosition));
             OnChanged(nameof(SelectedTitle));
         }
 
@@ -825,6 +868,19 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void PositionLogList_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is not ListView listView)
+            return;
+
+        var element = e.OriginalSource as DependencyObject;
+        var container = FindAncestor<ListViewItem>(element);
+        if (container is null)
+            return;
+
+        listView.SelectedItem = container.Content;
+    }
+
     private void DeviceMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnChanged(nameof(DeviceMetricsCountText));
@@ -877,13 +933,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
-    private void RefreshPositionEntries()
+    private void RefreshPositionEntries(List<PositionLogEntry>? entries = null)
     {
         var viewer = FindScrollViewer(PositionLogList);
         var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
         var priorOffset = viewer?.VerticalOffset ?? 0;
 
-        var positionEntries = ReadPositionEntries();
+        var positionEntries = entries ?? ReadPositionEntries();
         PositionLogEntries.Clear();
         foreach (var entry in positionEntries)
             PositionLogEntries.Add(entry);
@@ -895,13 +951,221 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
-    private async void OpenMaps_Click(object sender, RoutedEventArgs _)
+    private async void PositionLogOpenMaps_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedPositionEntry is null) return;
-        var lat = _selectedPositionEntry.Lat.ToString("0.0000000", CultureInfo.InvariantCulture);
-        var lon = _selectedPositionEntry.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
-        var uri = new Uri($"https://www.google.com/maps/search/?api=1&query={lat},{lon}");
+        if (sender is MenuFlyoutItem item && item.CommandParameter is PositionLogEntry entry)
+            await OpenMapsForPositionAsync(entry.Lat, entry.Lon);
+    }
+
+    private async void OpenCurrentPosition_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is null || !Selected.HasPosition)
+            return;
+
+        await OpenMapsForPositionAsync(Selected.Latitude, Selected.Longitude);
+    }
+
+    private async System.Threading.Tasks.Task OpenMapsForPositionAsync(double latValue, double lonValue)
+    {
+        var lat = latValue.ToString("0.0000000", CultureInfo.InvariantCulture);
+        var lon = lonValue.ToString("0.0000000", CultureInfo.InvariantCulture);
+        var uri = new Uri($"https://www.google.com/maps?q={lat},{lon}");
         await Launcher.LaunchUriAsync(uri);
+    }
+
+    private async void DeletePositionLogOlder_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is null)
+            return;
+
+        var entries = ReadPositionEntries();
+        if (entries.Count == 0)
+        {
+            await ShowStatusAsync("No position log entries to delete.");
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow.AddDays(-_positionLogRetentionDays);
+        var remaining = entries
+            .Where(entry => entry.TimestampUtc >= cutoff)
+            .OrderByDescending(entry => entry.TimestampUtc)
+            .ToList();
+
+        var selectedKey = _selectedPositionEntry is null
+            ? null
+            : new PositionLogKey(_selectedPositionEntry.TimestampUtc, _selectedPositionEntry.Lat, _selectedPositionEntry.Lon);
+
+        var points = remaining
+            .OrderBy(entry => entry.TimestampUtc)
+            .Select(entry => new GpsArchive.PositionPoint(entry.Lat, entry.Lon, entry.TimestampUtc, entry.Alt, entry.Src))
+            .ToList();
+
+        GpsArchive.WriteAll(Selected.IdHex, points);
+
+        RefreshPositionEntries(remaining);
+
+        if (selectedKey is not null)
+        {
+            var restored = PositionLogEntries.FirstOrDefault(entry =>
+                entry.TimestampUtc == selectedKey.TimestampUtc &&
+                Math.Abs(entry.Lat - selectedKey.Lat) < 0.0000001 &&
+                Math.Abs(entry.Lon - selectedKey.Lon) < 0.0000001);
+            PositionLogList.SelectedItem = restored;
+        }
+    }
+
+    private async void ExportPositionLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is null)
+            return;
+
+        var entries = ReadPositionEntries();
+        if (entries.Count == 0)
+        {
+            await ShowStatusAsync("No position log entries to export.");
+            return;
+        }
+
+        var suggestedName = $"{Selected.ShortId}_position_log";
+        var exportPath = await PickExportPathAsync(suggestedName);
+        if (string.IsNullOrWhiteSpace(exportPath))
+            return;
+
+        var extension = Path.GetExtension(exportPath).ToLowerInvariant();
+        var content = extension switch
+        {
+            ".gpx" => BuildPositionLogGpx(entries, Selected),
+            ".csv" => BuildPositionLogCsv(entries, Selected),
+            ".txt" => BuildPositionLogTxt(entries),
+            _ => BuildPositionLogCsv(entries, Selected)
+        };
+
+        try
+        {
+            var targetDir = Path.GetDirectoryName(exportPath);
+            if (!string.IsNullOrWhiteSpace(targetDir))
+                Directory.CreateDirectory(targetDir);
+            File.WriteAllText(exportPath, content, Encoding.UTF8);
+            await ShowStatusAsync($"Position log exported to:{Environment.NewLine}{exportPath}");
+        }
+        catch (Exception ex)
+        {
+            await ShowStatusAsync($"Export failed: {ex.Message}");
+        }
+    }
+
+    private async System.Threading.Tasks.Task<string?> PickExportPathAsync(string suggestedName)
+    {
+        if (Packaging.IsPackaged())
+        {
+            var picker = new FileSavePicker
+            {
+                SuggestedFileName = suggestedName
+            };
+            picker.FileTypeChoices.Add("CSV", new List<string> { ".csv" });
+            picker.FileTypeChoices.Add("GPX", new List<string> { ".gpx" });
+            picker.FileTypeChoices.Add("Text", new List<string> { ".txt" });
+
+            if (App.MainWindowInstance is null)
+                return null;
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindowInstance);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            var file = await picker.PickSaveFileAsync();
+            return file?.Path;
+        }
+
+        try
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                FileName = suggestedName,
+                Filter = "CSV (*.csv)|*.csv|GPX (*.gpx)|*.gpx|Text (*.txt)|*.txt|All files (*.*)|*.*",
+                DefaultExt = ".csv",
+                AddExtension = true
+            };
+
+            return dialog.ShowDialog() == true ? dialog.FileName : null;
+        }
+        catch
+        {
+            var fallbackPath = Path.Combine(AppDataPaths.LogsPath, $"{suggestedName}.csv");
+            return fallbackPath;
+        }
+    }
+
+    private static string BuildPositionLogTxt(IEnumerable<PositionLogEntry> entries)
+        => string.Join(Environment.NewLine, entries.Select(entry => entry.DisplayText));
+
+    private static string BuildPositionLogCsv(IEnumerable<PositionLogEntry> entries, NodeLive node)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("timestamp,lat,lon,alt,nodeId,nodeName");
+
+        foreach (var entry in entries.OrderBy(entry => entry.TimestampUtc))
+        {
+            var timestamp = entry.TimestampUtc.ToString("o", CultureInfo.InvariantCulture);
+            var lat = entry.Lat.ToString("0.0000000", CultureInfo.InvariantCulture);
+            var lon = entry.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
+            var alt = entry.Alt.HasValue ? entry.Alt.Value.ToString("0.##", CultureInfo.InvariantCulture) : "";
+            var nodeId = EscapeCsv(node.IdHex ?? "");
+            var nodeName = EscapeCsv(node.Name ?? "");
+
+            sb.AppendLine($"{timestamp},{lat},{lon},{alt},{nodeId},{nodeName}");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string BuildPositionLogGpx(IEnumerable<PositionLogEntry> entries, NodeLive node)
+    {
+        var settings = new XmlWriterSettings
+        {
+            Indent = true,
+            Encoding = Encoding.UTF8
+        };
+
+        var sb = new StringBuilder();
+        using (var writer = XmlWriter.Create(sb, settings))
+        {
+            writer.WriteStartDocument();
+            writer.WriteStartElement("gpx", "http://www.topografix.com/GPX/1/1");
+            writer.WriteAttributeString("version", "1.1");
+            writer.WriteAttributeString("creator", "MeshtasticWin");
+
+            writer.WriteStartElement("trk");
+            writer.WriteElementString("name", node.Name ?? "MeshtasticWin");
+            writer.WriteStartElement("trkseg");
+
+            foreach (var entry in entries.OrderBy(entry => entry.TimestampUtc))
+            {
+                writer.WriteStartElement("trkpt");
+                writer.WriteAttributeString("lat", entry.Lat.ToString("0.0000000", CultureInfo.InvariantCulture));
+                writer.WriteAttributeString("lon", entry.Lon.ToString("0.0000000", CultureInfo.InvariantCulture));
+                if (entry.Alt.HasValue)
+                    writer.WriteElementString("ele", entry.Alt.Value.ToString("0.##", CultureInfo.InvariantCulture));
+                writer.WriteElementString("time", entry.TimestampUtc.ToString("o", CultureInfo.InvariantCulture));
+                writer.WriteEndElement();
+            }
+
+            writer.WriteEndElement();
+            writer.WriteEndElement();
+            writer.WriteEndElement();
+            writer.WriteEndDocument();
+        }
+
+        return sb.ToString();
+    }
+
+    private static string EscapeCsv(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return "";
+
+        var needsQuotes = value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r');
+        var escaped = value.Replace("\"", "\"\"");
+        return needsQuotes ? $"\"{escaped}\"" : escaped;
     }
 
     private void ClearDeviceMetrics_Click(object sender, RoutedEventArgs _)
@@ -1453,8 +1717,56 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MapView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"trackClearAll\"}");
     }
 
-    internal sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string DisplayText)
+    private static string FormatRelativeAge(DateTime utcTimestamp)
     {
+        if (utcTimestamp == DateTime.MinValue)
+            return "—";
+
+        var delta = DateTime.UtcNow - utcTimestamp;
+        if (delta < TimeSpan.Zero)
+            delta = TimeSpan.Zero;
+
+        if (delta.TotalMinutes < 60)
+        {
+            var minutes = Math.Max(1, (int)Math.Floor(delta.TotalMinutes));
+            return $"{minutes} min ago";
+        }
+
+        if (delta.TotalHours < 24)
+        {
+            var hours = (int)Math.Floor(delta.TotalHours);
+            return $"{hours} hour{(hours == 1 ? "" : "s")} ago";
+        }
+
+        var days = (int)Math.Floor(delta.TotalDays);
+        return $"{days} day{(days == 1 ? "" : "s")} ago";
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? element) where T : DependencyObject
+    {
+        while (element is not null)
+        {
+            if (element is T match)
+                return match;
+
+            element = VisualTreeHelper.GetParent(element);
+        }
+
+        return null;
+    }
+
+    private sealed record PositionLogKey(DateTime TimestampUtc, double Lat, double Lon);
+
+    internal sealed record PositionLogEntry(DateTime TimestampUtc, double Lat, double Lon, double? Alt, string Src, string DisplayText)
+    {
+        public bool HasValidPosition =>
+            !double.IsNaN(Lat) &&
+            !double.IsNaN(Lon) &&
+            !double.IsInfinity(Lat) &&
+            !double.IsInfinity(Lon) &&
+            Lat is >= -90 and <= 90 &&
+            Lon is >= -180 and <= 180;
+
         public static PositionLogEntry FromPoint(GpsArchive.PositionPoint point)
         {
             var altText = point.Alt.HasValue
@@ -1464,7 +1776,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             var lon = point.Lon.ToString("0.0000000", CultureInfo.InvariantCulture);
             var tsLocal = point.TsUtc.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture);
             var display = $"{tsLocal} | {lat}, {lon}{altText}";
-            return new PositionLogEntry(point.TsUtc, point.Lat, point.Lon, point.Alt, display);
+            return new PositionLogEntry(point.TsUtc, point.Lat, point.Lon, point.Alt, point.Src, display);
         }
     }
 

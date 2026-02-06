@@ -48,16 +48,34 @@ public static class GpsArchive
             tsUtc = DateTime.SpecifyKind(tsUtc, DateTimeKind.Utc);
 
         var line =
-            tsUtc.ToString("o", CultureInfo.InvariantCulture) + ";" +
-            lat.ToString("0.0000000", CultureInfo.InvariantCulture) + ";" +
-            lon.ToString("0.0000000", CultureInfo.InvariantCulture) + ";" +
-            (alt.HasValue ? alt.Value.ToString("0.##", CultureInfo.InvariantCulture) : "") + ";" +
-            (src ?? "");
+            FormatLine(new PositionPoint(lat, lon, tsUtc, alt, src));
 
         lock (_gate)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.AppendAllText(path, line + Environment.NewLine);
+        }
+    }
+
+    public static void WriteAll(string idHex, IEnumerable<PositionPoint> points)
+    {
+        var path = FilePathFor(idHex);
+        var dir = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(dir);
+
+        var tempPath = Path.Combine(dir, $"{Path.GetFileName(path)}.tmp");
+        var lines = points
+            .OrderBy(p => p.TsUtc)
+            .Select(FormatLine)
+            .ToArray();
+
+        lock (_gate)
+        {
+            File.WriteAllLines(tempPath, lines);
+            if (File.Exists(path))
+                File.Replace(tempPath, path, null);
+            else
+                File.Move(tempPath, path);
         }
     }
 
@@ -110,5 +128,18 @@ public static class GpsArchive
         }
 
         return list;
+    }
+
+    private static string FormatLine(PositionPoint point)
+    {
+        var tsUtc = point.TsUtc;
+        if (tsUtc.Kind != DateTimeKind.Utc)
+            tsUtc = DateTime.SpecifyKind(tsUtc, DateTimeKind.Utc);
+
+        return tsUtc.ToString("o", CultureInfo.InvariantCulture) + ";" +
+               point.Lat.ToString("0.0000000", CultureInfo.InvariantCulture) + ";" +
+               point.Lon.ToString("0.0000000", CultureInfo.InvariantCulture) + ";" +
+               (point.Alt.HasValue ? point.Alt.Value.ToString("0.##", CultureInfo.InvariantCulture) : "") + ";" +
+               (point.Src ?? "");
     }
 }
