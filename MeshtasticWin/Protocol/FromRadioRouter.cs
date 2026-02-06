@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Linq;
 using System.Reflection;
+using System.Globalization;
+using System.Text;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using MeshtasticWin.Models;
@@ -96,11 +98,19 @@ public static class FromRadioRouter
         fromNode.Touch();
 
         // SNR/RSSI (feltnamn varierer litt – prøv fleire)
+        double? rxSnr = null;
         if (TryGetDouble(packetObj, "RxSnr", out var snr) || TryGetDouble(packetObj, "Snr", out snr))
+        {
             fromNode.SNR = snr.ToString("0.0");
+            rxSnr = snr;
+        }
 
+        double? rxRssi = null;
         if (TryGetDouble(packetObj, "RxRssi", out var rssi) || TryGetDouble(packetObj, "Rssi", out rssi))
+        {
             fromNode.RSSI = rssi.ToString("0");
+            rxRssi = rssi;
+        }
 
         var decodedObj = packetObj.GetType()
             .GetProperty("Decoded", BindingFlags.Public | BindingFlags.Instance)
@@ -137,7 +147,7 @@ public static class FromRadioRouter
         // --- TRACEROUTE_APP ---
         if (portNum == TraceRoutePortNum)
         {
-            if (TryHandleTraceRouteFromPayload(decodedObj, fromNodeNum, logToUi, out var s))
+            if (TryHandleTraceRouteFromPayload(decodedObj, fromNodeNum, rxSnr, rxRssi, logToUi, out var s))
                 logToUi("TraceRoute: " + s);
             return;
         }
@@ -525,7 +535,7 @@ public static class FromRadioRouter
         }
     }
 
-    private static bool TryHandleTraceRouteFromPayload(object decodedObj, uint fromNodeNum, Action<string> logToUi, out string summary)
+    private static bool TryHandleTraceRouteFromPayload(object decodedObj, uint fromNodeNum, double? rxSnr, double? rxRssi, Action<string> logToUi, out string summary)
     {
         summary = "traceroute empty";
         var payloadBytes = TryGetPayloadBytes(decodedObj);
@@ -571,6 +581,15 @@ public static class FromRadioRouter
         }
 
         var formatted = FormatProtoSingleLine(routeObj);
+        if (rxSnr.HasValue || rxRssi.HasValue)
+        {
+            var sb = new StringBuilder(formatted);
+            if (rxSnr.HasValue)
+                sb.Append(" rx_snr: ").Append(rxSnr.Value.ToString("0.0", CultureInfo.InvariantCulture));
+            if (rxRssi.HasValue)
+                sb.Append(" rx_rssi: ").Append(rxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture));
+            formatted = sb.ToString();
+        }
         var fromIdHex = $"0x{fromNodeNum:x8}";
         NodeLogArchive.Append(NodeLogType.TraceRoute, fromIdHex, DateTime.UtcNow, formatted);
         summary = formatted;
