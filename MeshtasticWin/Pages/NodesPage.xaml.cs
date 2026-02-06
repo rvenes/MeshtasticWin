@@ -231,11 +231,27 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         wv.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
-        var installPath = Package.Current.InstalledLocation.Path;
+        var installPath = ResolveInstallPath();
         var mapFolder = Path.Combine(installPath, "Assets", "Map");
 
         wv.SetVirtualHostNameToFolderMapping("appassets.local", mapFolder, CoreWebView2HostResourceAccessKind.Allow);
         MapView.Source = new Uri("https://appassets.local/map.html");
+    }
+
+    private static string ResolveInstallPath()
+    {
+        try
+        {
+            return Package.Current.InstalledLocation.Path;
+        }
+        catch (InvalidOperationException)
+        {
+            return AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
     }
 
     private void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
