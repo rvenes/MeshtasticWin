@@ -11,8 +11,7 @@ public static class MessageArchive
 
     // %LOCALAPPDATA%\MeshtasticWin\Logs
     private static string BaseDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                     "MeshtasticWin", "Logs");
+        AppDataPaths.LogsPath;
 
     public static void Append(MessageLive msg, string? channelName = null, string? dmPeerIdHex = null)
     {
@@ -32,30 +31,31 @@ public static class MessageArchive
             }
             else if (!string.IsNullOrWhiteSpace(safeChannel))
             {
-                // Kanalfil
+                // Channel file
                 fileName = $"channel_{safeChannel}_{date}.log";
             }
             else
             {
-                // Fallback: alt i éi fil
+                // Fallback: everything in one file
                 fileName = $"all_{date}.log";
             }
 
             var path = Path.Combine(BaseDir, fileName);
 
-            // Enkel, robust line-format
-            // ISO-tid | header | text
+            // Simple, robust line format
+            // ISO time | header | text
             var line =
                 $"{DateTimeOffset.Now:O} | {msg.Header} | {msg.Text.Replace("\r", " ").Replace("\n", " ")}";
 
             lock (_lock)
             {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
             }
         }
         catch
         {
-            // Logging må aldri få appen til å krasje.
+            // Logging must never crash the app.
         }
     }
 
