@@ -354,9 +354,13 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             }
 
             var url = match.Value;
-            var link = new Hyperlink { Tag = url };
+            var link = new Hyperlink();
             link.Inlines.Add(new Run { Text = url });
-            link.Click += MessageHyperlink_Click;
+            link.Click += async (_, __) =>
+            {
+                if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    await Launcher.LaunchUriAsync(uri);
+            };
             paragraph.Inlines.Add(link);
             lastIndex = match.Index + match.Length;
         }
@@ -383,15 +387,6 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         return "";
     }
 
-    private async void MessageHyperlink_Click(Hyperlink sender, HyperlinkClickEventArgs args)
-    {
-        if (sender.Tag is not string url || string.IsNullOrWhiteSpace(url))
-            return;
-
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            await Launcher.LaunchUriAsync(uri);
-    }
-
     private void CopyMessageText_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem item)
@@ -401,15 +396,12 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         if (flyout?.Target is not RichTextBlock textBlock)
             return;
 
-        var selected = textBlock.Selection?.Text ?? "";
         var fullText = GetMessageText(textBlock);
-        var textToCopy = string.IsNullOrWhiteSpace(selected) ? fullText : selected;
-
-        if (string.IsNullOrWhiteSpace(textToCopy))
+        if (string.IsNullOrWhiteSpace(fullText))
             return;
 
         var package = new DataPackage();
-        package.SetText(textToCopy);
+        package.SetText(fullText);
         Clipboard.SetContent(package);
     }
 
