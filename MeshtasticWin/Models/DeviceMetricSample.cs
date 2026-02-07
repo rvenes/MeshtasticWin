@@ -3,14 +3,28 @@ using System.Globalization;
 
 namespace MeshtasticWin.Models;
 
-public sealed record DeviceMetricSample(
-    DateTime Timestamp,
-    double? BatteryVolts,
-    double? ChannelUtilization,
-    double? Airtime,
-    bool? IsPowered)
+public sealed record DeviceMetricSample
 {
-    public double? BatteryPercent { get; init; }
+    public DeviceMetricSample(DateTime timestamp, double? batteryVolts, double? channelUtilization, double? airtime, bool? isPowered)
+    {
+        Timestamp = timestamp;
+        BatteryVolts = batteryVolts;
+        ChannelUtilization = channelUtilization;
+        Airtime = airtime;
+        IsPowered = isPowered;
+    }
+
+    public DateTime Timestamp { get; set; }
+
+    public double? BatteryVolts { get; set; }
+
+    public double? ChannelUtilization { get; set; }
+
+    public double? Airtime { get; set; }
+
+    public bool? IsPowered { get; set; }
+
+    public double? BatteryPercent { get; set; }
 
     public DateTime TimestampLocal => Timestamp.Kind == DateTimeKind.Utc
         ? Timestamp.ToLocalTime()
