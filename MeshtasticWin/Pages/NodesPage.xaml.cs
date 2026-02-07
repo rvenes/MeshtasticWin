@@ -74,8 +74,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private PositionLogEntry? _selectedPositionEntry;
     private int _positionLogRetentionDays = 7;
     private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
-    private readonly ReadOnlyObservableCollection<DeviceMetricSample> _deviceMetricSamplesView;
-    public IEnumerable<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamplesView;
+    public ObservableCollection<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -234,7 +233,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         InitializeComponent();
 
-        _deviceMetricSamplesView = new ReadOnlyObservableCollection<DeviceMetricSample>(_deviceMetricSamples);
         _deviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
 
         AgeFilterCombo.Items.Add("Show all");
@@ -771,9 +769,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (Selected is null) return;
 
         var nodeId = NormalizeNodeId(Selected.IdHex);
-        if (_enabledTrackNodeIds.Contains(nodeId))
+        if (_enabledTrackNodeIds.Remove(nodeId))
         {
-            _enabledTrackNodeIds.Remove(nodeId);
             _lastTrackPointByNode.Remove(nodeId);
             SendTrackClear(nodeId);
             OnChanged(nameof(GpsTrackButtonText));
@@ -991,45 +988,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     }
 
     private async void DeletePositionLogOlder_Click(object sender, RoutedEventArgs e)
-    {
-        if (Selected is null)
-            return;
-
-        var entries = ReadPositionEntries();
-        if (entries.Count == 0)
-        {
-            await ShowStatusAsync("No position log entries to delete.");
-            return;
-        }
-
-        var cutoff = DateTime.UtcNow.AddDays(-_positionLogRetentionDays);
-        var remaining = entries
-            .Where(entry => entry.TimestampUtc >= cutoff)
-            .OrderByDescending(entry => entry.TimestampUtc)
-            .ToList();
-
-        var selectedKey = _selectedPositionEntry is null
-            ? null
-            : new PositionLogKey(_selectedPositionEntry.TimestampUtc, _selectedPositionEntry.Lat, _selectedPositionEntry.Lon);
-
-        var points = remaining
-            .OrderBy(entry => entry.TimestampUtc)
-            .Select(entry => new GpsArchive.PositionPoint(entry.Lat, entry.Lon, entry.TimestampUtc, entry.Alt, entry.Src))
-            .ToList();
-
-        GpsArchive.WriteAll(Selected.IdHex, points);
-
-        RefreshPositionEntries(remaining);
-
-        if (selectedKey is not null)
-        {
-            var restored = PositionLogEntries.FirstOrDefault(entry =>
-                entry.TimestampUtc == selectedKey.TimestampUtc &&
-                Math.Abs(entry.Lat - selectedKey.Lat) < 0.0000001 &&
-                Math.Abs(entry.Lon - selectedKey.Lon) < 0.0000001);
-            PositionLogList.SelectedItem = restored;
-        }
-    }
+        => await DeletePositionLogOlderAsync();
 
     private async void ExportPositionLog_Click(object _, RoutedEventArgs _1)
     {
@@ -1170,6 +1129,50 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         DeviceMetricsLogService.ClearSamples(Selected.IdHex);
         _deviceMetricSamples.Clear();
         DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
+    }
+
+    private async void ShowLogFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is null)
+            return;
+
+        if (!TryGetLogKind(sender, out var kind))
+            return;
+
+        var folderPath = GetLogFolderPath(kind);
+        try
+        {
+            Directory.CreateDirectory(folderPath);
+            var opened = await Launcher.LaunchFolderPathAsync(folderPath);
+            if (!opened)
+                await ShowStatusAsync("Unable to open the log folder.");
+        }
+        catch (Exception ex)
+        {
+            await ShowStatusAsync($"Unable to open the log folder: {ex.Message}");
+        }
+    }
+
+    private async void DeleteLogOlder_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is null)
+            return;
+
+        if (!TryGetLogKind(sender, out var kind))
+            return;
+
+        await DeleteLogOlderAsync(kind);
+    }
+
+    private async void DeleteLogAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is null)
+            return;
+
+        if (!TryGetLogKind(sender, out var kind))
+            return;
+
+        await DeleteLogAllAsync(kind);
     }
 
     private async void SaveDeviceMetrics_Click(object _, RoutedEventArgs _1)
@@ -1447,7 +1450,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         map[kind] = timestampUtc;
     }
 
-    private DateTime GetLogLastWriteTimeUtc(string nodeId, LogKind kind)
+    private static DateTime GetLogLastWriteTimeUtc(string nodeId, LogKind kind)
     {
         var path = GetLogFilePath(nodeId, kind);
         return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
@@ -1827,7 +1830,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         foreach (var token in tokens)
         {
-            if (token.EndsWith(":", StringComparison.Ordinal))
+            if (token.EndsWith(':'))
             {
                 currentLabel = token;
                 continue;
@@ -1879,6 +1882,256 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private static string FormatSnrValue(double value)
         => value.ToString("0.0", CultureInfo.InvariantCulture);
+
+    private static bool TryGetLogKind(object sender, out LogKind kind)
+    {
+        if (sender is FrameworkElement element && element.Tag is string tag &&
+            Enum.TryParse(tag, out LogKind parsed))
+        {
+            kind = parsed;
+            return true;
+        }
+
+        kind = default;
+        return false;
+    }
+
+    private static string GetLogFolderPath(LogKind kind)
+    {
+        var baseDir = AppDataPaths.LogsPath;
+        return kind switch
+        {
+            LogKind.DeviceMetrics => Path.Combine(baseDir, "device_metrics"),
+            LogKind.TraceRoute => Path.Combine(baseDir, "traceroute"),
+            LogKind.PowerMetrics => Path.Combine(baseDir, "power_metrics"),
+            LogKind.DetectionSensor => Path.Combine(baseDir, "detection_sensor"),
+            LogKind.Position => AppDataPaths.GpsPath,
+            _ => baseDir
+        };
+    }
+
+    private async System.Threading.Tasks.Task DeleteLogOlderAsync(LogKind kind)
+    {
+        switch (kind)
+        {
+            case LogKind.Position:
+                await DeletePositionLogOlderAsync();
+                break;
+            case LogKind.DeviceMetrics:
+                await DeleteDeviceMetricsOlderAsync();
+                break;
+            case LogKind.TraceRoute:
+            case LogKind.PowerMetrics:
+            case LogKind.DetectionSensor:
+                await DeleteTextLogOlderAsync(kind);
+                break;
+        }
+    }
+
+    private async System.Threading.Tasks.Task DeleteLogAllAsync(LogKind kind)
+    {
+        switch (kind)
+        {
+            case LogKind.Position:
+                await DeletePositionLogAllAsync();
+                break;
+            case LogKind.DeviceMetrics:
+                DeleteDeviceMetricsAll();
+                break;
+            case LogKind.TraceRoute:
+            case LogKind.PowerMetrics:
+            case LogKind.DetectionSensor:
+                DeleteTextLogAll(kind);
+                break;
+        }
+    }
+
+    private async System.Threading.Tasks.Task DeletePositionLogOlderAsync()
+    {
+        if (Selected is null)
+            return;
+
+        var entries = ReadPositionEntries();
+        if (entries.Count == 0)
+        {
+            await ShowStatusAsync("No position log entries to delete.");
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow.AddDays(-_positionLogRetentionDays);
+        var remaining = entries
+            .Where(entry => entry.TimestampUtc >= cutoff)
+            .OrderByDescending(entry => entry.TimestampUtc)
+            .ToList();
+
+        var selectedKey = _selectedPositionEntry is null
+            ? null
+            : new PositionLogKey(_selectedPositionEntry.TimestampUtc, _selectedPositionEntry.Lat, _selectedPositionEntry.Lon);
+
+        var points = remaining
+            .OrderBy(entry => entry.TimestampUtc)
+            .Select(entry => new GpsArchive.PositionPoint(entry.Lat, entry.Lon, entry.TimestampUtc, entry.Alt, entry.Src))
+            .ToList();
+
+        GpsArchive.WriteAll(Selected.IdHex, points);
+
+        RefreshPositionEntries(remaining);
+
+        if (selectedKey is not null)
+        {
+            var restored = PositionLogEntries.FirstOrDefault(entry =>
+                entry.TimestampUtc == selectedKey.TimestampUtc &&
+                Math.Abs(entry.Lat - selectedKey.Lat) < 0.0000001 &&
+                Math.Abs(entry.Lon - selectedKey.Lon) < 0.0000001);
+            PositionLogList.SelectedItem = restored;
+        }
+    }
+
+    private async System.Threading.Tasks.Task DeletePositionLogAllAsync()
+    {
+        if (Selected is null)
+            return;
+
+        var path = GetLogFilePath(Selected.IdHex, LogKind.Position);
+        if (!File.Exists(path))
+        {
+            await ShowStatusAsync("No position log entries to delete.");
+            return;
+        }
+
+        File.Delete(path);
+        PositionLogEntries.Clear();
+        _selectedPositionEntry = null;
+        OnChanged(nameof(HasPositionSelection));
+    }
+
+    private async System.Threading.Tasks.Task DeleteDeviceMetricsOlderAsync()
+    {
+        if (Selected is null)
+            return;
+
+        var path = DeviceMetricsLogService.GetLogPath(Selected.IdHex);
+        if (!File.Exists(path))
+        {
+            await ShowStatusAsync("No device metrics log entries to delete.");
+            return;
+        }
+
+        var lines = File.ReadAllLines(path);
+        var cutoff = DateTime.UtcNow.AddDays(-_positionLogRetentionDays);
+        var filtered = new List<string>();
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            if (line.StartsWith("timestamp_utc", StringComparison.OrdinalIgnoreCase))
+            {
+                filtered.Add(line);
+                continue;
+            }
+
+            var parts = line.Split(',');
+            if (parts.Length == 0)
+                continue;
+
+            if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp))
+            {
+                filtered.Add(line);
+                continue;
+            }
+
+            if (timestamp.ToUniversalTime() >= cutoff)
+                filtered.Add(line);
+        }
+
+        DeviceMetricsLogService.ClearSamples(Selected.IdHex);
+
+        var hasDataLines = filtered.Any(line => !line.StartsWith("timestamp_utc", StringComparison.OrdinalIgnoreCase));
+        if (hasDataLines)
+        {
+            if (!filtered.Any(line => line.StartsWith("timestamp_utc", StringComparison.OrdinalIgnoreCase)))
+                filtered.Insert(0, "timestamp_utc,battery_volts,battery_percent,channel_utilization,airtime,is_powered");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllLines(path, filtered);
+        }
+
+        RefreshDeviceMetricsSamples();
+    }
+
+    private void DeleteDeviceMetricsAll()
+    {
+        if (Selected is null)
+            return;
+
+        DeviceMetricsLogService.ClearSamples(Selected.IdHex);
+        _deviceMetricSamples.Clear();
+        DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
+    }
+
+    private async System.Threading.Tasks.Task DeleteTextLogOlderAsync(LogKind kind)
+    {
+        if (Selected is null)
+            return;
+
+        var path = GetLogFilePath(Selected.IdHex, kind);
+        if (!File.Exists(path))
+        {
+            await ShowStatusAsync("No log entries to delete.");
+            return;
+        }
+
+        var lines = File.ReadAllLines(path);
+        var cutoff = DateTime.UtcNow.AddDays(-_positionLogRetentionDays);
+        var filtered = new List<string>();
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            var parts = line.Split(new[] { " | " }, 2, StringSplitOptions.None);
+            if (parts.Length == 0)
+                continue;
+
+            if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp))
+            {
+                filtered.Add(line);
+                continue;
+            }
+
+            if (timestamp.ToUniversalTime() >= cutoff)
+                filtered.Add(line);
+        }
+
+        if (filtered.Count == 0)
+        {
+            File.Delete(path);
+        }
+        else
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllLines(path, filtered);
+        }
+
+        RefreshSelectedNodeLogs();
+    }
+
+    private void DeleteTextLogAll(LogKind kind)
+    {
+        if (Selected is null)
+            return;
+
+        var path = GetLogFilePath(Selected.IdHex, kind);
+        if (File.Exists(path))
+            File.Delete(path);
+
+        RefreshSelectedNodeLogs();
+    }
 
     private readonly record struct TraceRouteParsed(
         List<uint> Route,
