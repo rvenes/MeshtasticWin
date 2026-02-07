@@ -1,5 +1,6 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
@@ -9,6 +10,9 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.ComponentModel;
 using System.Linq;
+using System.Text.RegularExpressions;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.System;
 
 namespace MeshtasticWin.Pages;
 
@@ -17,6 +21,8 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<MessageVm> ViewMessages { get; } = new();
     public ObservableCollection<ChatListItemVm> ChatListItems { get; } = new();
+
+    private static readonly Regex UrlRegex = new(@"https?://\S+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public string ActiveChatTitle
     {
@@ -310,6 +316,93 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             MessageArchive.Append(local, channelName: "Primary");
         else
             MessageArchive.Append(local, dmPeerIdHex: peer);
+    }
+
+    private void MessageText_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is RichTextBlock textBlock)
+            UpdateMessageText(textBlock);
+    }
+
+    private void MessageText_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+    {
+        if (sender is RichTextBlock textBlock)
+            UpdateMessageText(textBlock);
+    }
+
+    private void UpdateMessageText(RichTextBlock textBlock)
+    {
+        var text = GetMessageText(textBlock);
+        textBlock.Blocks.Clear();
+
+        var paragraph = new Paragraph();
+        if (string.IsNullOrEmpty(text))
+        {
+            textBlock.Blocks.Add(paragraph);
+            return;
+        }
+
+        var lastIndex = 0;
+        foreach (Match match in UrlRegex.Matches(text))
+        {
+            if (match.Index > lastIndex)
+            {
+                paragraph.Inlines.Add(new Run
+                {
+                    Text = text.Substring(lastIndex, match.Index - lastIndex)
+                });
+            }
+
+            var url = match.Value;
+            var link = new Hyperlink();
+            link.Inlines.Add(new Run { Text = url });
+            link.Click += async (_, __) =>
+            {
+                if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    await Launcher.LaunchUriAsync(uri);
+            };
+            paragraph.Inlines.Add(link);
+            lastIndex = match.Index + match.Length;
+        }
+
+        if (lastIndex < text.Length)
+        {
+            paragraph.Inlines.Add(new Run
+            {
+                Text = text.Substring(lastIndex)
+            });
+        }
+
+        textBlock.Blocks.Add(paragraph);
+    }
+
+    private static string GetMessageText(RichTextBlock textBlock)
+    {
+        if (textBlock.Tag is string tagText)
+            return tagText;
+
+        if (textBlock.DataContext is MessageVm message)
+            return message.Text ?? "";
+
+        return "";
+    }
+
+    private void CopyMessageText_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item)
+            return;
+
+        var flyout = item.Parent as MenuFlyout;
+        if (flyout?.Target is not RichTextBlock textBlock)
+            return;
+
+        var fullText = GetMessageText(textBlock);
+        if (string.IsNullOrWhiteSpace(fullText))
+            return;
+
+        var package = new DataPackage();
+        package.SetText(fullText);
+        Clipboard.SetContent(package);
     }
 
 }
