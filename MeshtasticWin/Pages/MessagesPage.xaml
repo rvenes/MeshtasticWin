@@ -84,12 +84,22 @@
 	                                          FontFamily="Segoe MDL2 Assets"
 	                                          Visibility="{x:Bind DeliveredVisible}" />
 
-	                                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap"/>
-	                            </StackPanel>
-	                        </StackPanel>
-	                    </DataTemplate>
-	                </ListView.ItemTemplate>
-	            </ListView>
+                                <RichTextBlock IsTextSelectionEnabled="True"
+                                               TextWrapping="Wrap"
+                                               Loaded="MessageText_Loaded"
+                                               DataContextChanged="MessageText_DataContextChanged"
+                                               Tag="{x:Bind Text, Mode=OneWay}">
+                                    <RichTextBlock.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Copy" Click="CopyMessageText_Click"/>
+                                        </MenuFlyout>
+                                    </RichTextBlock.ContextFlyout>
+                                </RichTextBlock>
+                            </StackPanel>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
 
 	            <!-- Composer -->
 	            <Grid Grid.Row="4">
