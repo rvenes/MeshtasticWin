@@ -141,7 +141,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             var lat = Selected.Latitude.ToString("0.000000", CultureInfo.InvariantCulture);
             var lon = Selected.Longitude.ToString("0.000000", CultureInfo.InvariantCulture);
             var relative = FormatRelativeAge(Selected.LastPositionUtc);
-            return $"{lat}, {lon} ({relative})";
+            var local = Selected.LastPositionUtc.ToLocalTime();
+            return $"{local:HH:mm:ss} {lat}, {lon} ({relative})";
         }
     }
     public string SelectedShortNameText
