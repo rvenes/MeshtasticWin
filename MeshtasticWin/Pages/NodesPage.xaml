@@ -112,7 +112,7 @@
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch">
                 <controls:TabView x:Name="DetailsTabs"
-                                  IsAddButtonVisible="False"
+                                  IsAddTabButtonVisible="False"
                                   SelectionChanged="DetailsTabs_SelectionChanged"
                                   HorizontalContentAlignment="Stretch"
                                   VerticalContentAlignment="Stretch"

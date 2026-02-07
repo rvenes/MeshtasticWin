@@ -74,8 +74,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private PositionLogEntry? _selectedPositionEntry;
     private int _positionLogRetentionDays = 7;
     private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
-    private readonly ReadOnlyObservableCollection<DeviceMetricSample> _deviceMetricSamplesView;
-    public IEnumerable<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamplesView;
+    public ObservableCollection<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -234,7 +233,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         InitializeComponent();
 
-        _deviceMetricSamplesView = new ReadOnlyObservableCollection<DeviceMetricSample>(_deviceMetricSamples);
         _deviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
 
         AgeFilterCombo.Items.Add("Show all");
@@ -1833,7 +1831,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         foreach (var token in tokens)
         {
-            if (token.EndsWith(":", StringComparison.Ordinal))
+            if (token.EndsWith(':'))
             {
                 currentLabel = token;
                 continue;
