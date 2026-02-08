@@ -1,5 +1,6 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using MeshtasticWin.Models;
@@ -510,6 +511,28 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
             collection.Move(currentIndex, targetIndex);
         }
+    }
+
+    private void ApplyChatSorting()
+    {
+        ChatsView.SortDescriptions.Clear();
+        switch (_sortMode)
+        {
+            case SortMode.LastActive:
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                break;
+            default:
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                break;
+        }
+    }
+
+    private void RefreshChatSorting()
+    {
+        ChatsView.Refresh();
     }
 
     private MessageVm CreateMessageVm(MessageLive message)

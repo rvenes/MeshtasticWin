@@ -261,6 +261,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         HideInactiveToggle.IsChecked = _hideInactive;
         NodesView.Source = VisibleNodes;
+        _nodesView = CollectionViewSource.GetDefaultView(VisibleNodes);
         ApplyNodeSorting();
 
         MeshtasticWin.AppState.Nodes.CollectionChanged += Nodes_CollectionChanged;
