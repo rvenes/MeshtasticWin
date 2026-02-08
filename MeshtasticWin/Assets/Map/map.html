@@ -94,6 +94,8 @@
     const markers = new Map(); // idHex -> L.Marker
     const labels  = new Map(); // idHex -> L.Marker (divIcon)
     const tracks = new Map(); // nodeId -> { polyline, markersLayer, pointsCount }
+    let routeLine = null;
+    let routeMarkers = null;
     let selectedId = null;
     let peekMarker = null;
     let peekTimer = null;
@@ -337,6 +339,40 @@
       clearPeek();
     }
 
+    function mwRouteClear(){
+      if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+      if (routeMarkers) { map.removeLayer(routeMarkers); routeMarkers = null; }
+    }
+
+    function mwRouteSet(points){
+      mwRouteClear();
+      if (!points || points.length === 0) return;
+
+      const latLngs = points.map(p => [p.lat, p.lon]);
+      routeLine = L.polyline(latLngs, { color: '#ff9800', weight: 4, opacity: 0.95 });
+      routeLine.addTo(map);
+
+      routeMarkers = L.layerGroup();
+      for (const p of points){
+        const marker = L.circleMarker([p.lat, p.lon], {
+          radius: 5,
+          color: '#f57c00',
+          weight: 2,
+          fillColor: '#ffb74d',
+          fillOpacity: 0.9
+        });
+        if (p.label) {
+          marker.bindTooltip(escapeHtml(p.label), { direction:'top', sticky:true, opacity:0.9 });
+        }
+        marker.addTo(routeMarkers);
+      }
+      routeMarkers.addTo(map);
+
+      if (routeLine.getBounds().isValid()) {
+        map.fitBounds(routeLine.getBounds().pad(0.25));
+      }
+    }
+
     function closeAllTooltips(){
       for (const m of markers.values()){
         m.closeTooltip();
@@ -363,6 +399,8 @@
         if (msg.type === "trackAppend") { mwTrackAppend(msg.idHex, msg.point); return; }
         if (msg.type === "trackClear") { mwTrackClear(msg.idHex); return; }
         if (msg.type === "trackClearAll") { mwTrackClearAll(); return; }
+        if (msg.type === "routeSet") { mwRouteSet(msg.points || []); return; }
+        if (msg.type === "routeClear") { mwRouteClear(); return; }
       });
     }
 
