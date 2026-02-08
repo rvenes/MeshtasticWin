@@ -41,6 +41,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private bool _hideInactive = true;
     private string _filter = "";
     private readonly DispatcherTimer _throttle = new();
+    private readonly DispatcherTimer _filterRebuildTimer = new();
     private bool _mapReady;
     private readonly DispatcherTimer _traceRouteTimer = new();
     private int _traceRouteRemainingSeconds;
@@ -252,6 +253,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         RebuildFiltered();
 
+        _filterRebuildTimer.Interval = TimeSpan.FromMilliseconds(300);
+        _filterRebuildTimer.Tick += (_, __) =>
+        {
+            _filterRebuildTimer.Stop();
+            RebuildFilteredCore();
+        };
+
         _throttle.Interval = TimeSpan.FromMilliseconds(350);
         _throttle.Tick += (_, __) => { _throttle.Stop(); _ = PushAllNodesToMapAsync(); };
 
@@ -272,6 +280,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             n.PropertyChanged -= Node_PropertyChanged;
 
         DeviceMetricsLogService.SampleAdded -= DeviceMetricsLogService_SampleAdded;
+        _filterRebuildTimer.Stop();
         _logPollTimer.Stop();
     }
 
@@ -579,7 +588,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (e.OldItems is not null)
             foreach (NodeLive n in e.OldItems) n.PropertyChanged -= Node_PropertyChanged;
 
-        RebuildFiltered();
+        ScheduleFilteredRebuild();
         OnChanged(nameof(NodeCountsText));
         TriggerMapUpdate();
     }
@@ -601,7 +610,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             or nameof(NodeLive.RSSI) or nameof(NodeLive.SNR))
         {
             OnChanged(nameof(NodeCountsText));
-            RebuildFiltered();
+            ScheduleFilteredRebuild();
             TriggerMapUpdate();
         }
 
@@ -641,10 +650,21 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _throttle.Start();
     }
 
+    private void ScheduleFilteredRebuild()
+    {
+        if (_filterRebuildTimer.IsEnabled)
+            _filterRebuildTimer.Stop();
+        _filterRebuildTimer.Start();
+    }
+
     private void RebuildFiltered()
     {
-        FilteredNodesView.Clear();
+        _filterRebuildTimer.Stop();
+        RebuildFilteredCore();
+    }
 
+    private void RebuildFilteredCore()
+    {
         var q = (_filter ?? "").Trim();
 
         var nodes = MeshtasticWin.AppState.Nodes
@@ -662,16 +682,45 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             .ThenBy(n => n.Name)
             .ToList();
 
-        foreach (var n in nodes)
-            FilteredNodesView.Add(n);
-
-        if (Selected is null && FilteredNodesView.Count > 0)
-        {
-            NodesList.SelectedItem = FilteredNodesView[0];
-            Selected = FilteredNodesView[0];
-        }
+        SyncFilteredNodesView(nodes);
 
         OnChanged(nameof(NodeCountsText));
+    }
+
+    private void SyncFilteredNodesView(IReadOnlyList<NodeLive> nodes)
+    {
+        for (var i = FilteredNodesView.Count - 1; i >= 0; i--)
+        {
+            if (!nodes.Contains(FilteredNodesView[i]))
+                FilteredNodesView.RemoveAt(i);
+        }
+
+        for (var targetIndex = 0; targetIndex < nodes.Count; targetIndex++)
+        {
+            var node = nodes[targetIndex];
+            if (targetIndex < FilteredNodesView.Count && ReferenceEquals(FilteredNodesView[targetIndex], node))
+                continue;
+
+            var existingIndex = FilteredNodesView.IndexOf(node);
+            if (existingIndex >= 0)
+                FilteredNodesView.Move(existingIndex, targetIndex);
+            else
+                FilteredNodesView.Insert(targetIndex, node);
+        }
+
+        if (Selected is null || !FilteredNodesView.Contains(Selected))
+        {
+            if (FilteredNodesView.Count > 0)
+            {
+                NodesList.SelectedItem = FilteredNodesView[0];
+                Selected = FilteredNodesView[0];
+            }
+            else
+            {
+                NodesList.SelectedItem = null;
+                Selected = null;
+            }
+        }
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
