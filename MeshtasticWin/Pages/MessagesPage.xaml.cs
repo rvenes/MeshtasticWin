@@ -513,28 +513,6 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         }
     }
 
-    private void ApplyChatSorting()
-    {
-        ChatsView.SortDescriptions.Clear();
-        switch (_sortMode)
-        {
-            case SortMode.LastActive:
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
-                break;
-            default:
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
-                break;
-        }
-    }
-
-    private void RefreshChatSorting()
-    {
-        ChatsView.Refresh();
-    }
-
     private MessageVm CreateMessageVm(MessageLive message)
     {
         var vm = MessageVm.From(message);
