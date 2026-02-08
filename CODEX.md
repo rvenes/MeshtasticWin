@@ -27,3 +27,40 @@ Typical workflow suggestions:
 - git push -u origin feature/<name>
 
 Only suggest commands. Do not execute git operations.
+
+## Environment
+
+- The user works on Windows 11.
+- Git is executed from Windows PowerShell, not inside WSL.
+- The repository is opened directly in `H:\Koding\MeshtasticWin`.
+- Never use WSL paths like `/mnt/h/...`.
+- Never use `git -C <path>`.
+- Always suggest simple git commands assuming the current directory is already the repo root.
+
+Example commands to suggest:
+
+- git status
+- git diff
+- git add -A
+- git commit -m "<message>"
+- git push -u origin feature/<name>
+
+## Commit Messages
+
+When changes are completed, always suggest a clear git commit message.
+
+Rules:
+- English only
+- Short and technical
+- Describe WHAT changed, not why or story
+- One line summary, optionally bullet points below
+
+Format:
+
+Short summary line
+
+Optional details:
+- change 1
+- change 2
+
+Only suggest the message. Never run git commit automatically.

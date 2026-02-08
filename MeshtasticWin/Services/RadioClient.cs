@@ -3,6 +3,7 @@ using MeshtasticWin.Parsing;
 using MeshtasticWin.Protocol;
 using System;
 using System.Collections.ObjectModel;
+using System.Threading;
 
 namespace MeshtasticWin.Services;
 
@@ -15,6 +16,7 @@ public sealed class RadioClient
     private SerialTransport? _transport;
     private readonly SerialTextDecoder _decoder = new();
     private readonly MeshtasticFrameDecoder _frameDecoder = new();
+    private int _disconnecting;
 
     public bool IsConnected { get; private set; }
     public string? PortName { get; private set; }
@@ -40,6 +42,8 @@ public sealed class RadioClient
         if (IsConnected)
             return;
 
+        Interlocked.Exchange(ref _disconnecting, 0);
+
         PortName = port;
 
         _transport = new SerialTransport(port);
@@ -48,8 +52,14 @@ public sealed class RadioClient
 
         _transport.BytesReceived += bytes =>
         {
+            if (Volatile.Read(ref _disconnecting) != 0 || !IsConnected)
+                return;
+
             foreach (var line in _decoder.Feed(bytes))
             {
+                if (Volatile.Read(ref _disconnecting) != 0)
+                    return;
+
                 if (!LooksLikeDebugText(line))
                     continue;
 
@@ -64,6 +74,9 @@ public sealed class RadioClient
 
             foreach (var frame in _frameDecoder.Feed(bytes))
             {
+                if (Volatile.Read(ref _disconnecting) != 0)
+                    return;
+
                 if (FromRadioRouter.TryHandle(frame, runOnUi, logToUi, out var summary))
                     logToUi($"PROTOBUF FromRadio: {summary} ({frame.Length} bytes)");
                 else
@@ -92,15 +105,18 @@ public sealed class RadioClient
 
     public async System.Threading.Tasks.Task DisconnectAsync()
     {
-        if (_transport is null)
+        var transport = _transport;
+        if (transport is null)
             return;
 
-        await _transport.DisconnectAsync();
+        Interlocked.Exchange(ref _disconnecting, 1);
+        IsConnected = false;
+        ConnectionChanged?.Invoke();
+
+        await transport.DisconnectAsync();
         _transport = null;
 
-        IsConnected = false;
         PortName = null;
-        ConnectionChanged?.Invoke();
         MeshtasticWin.AppState.SetConnectedNodeIdHex(null);
     }
 

@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
         foreach (var node in AppState.Nodes)
             node.PropertyChanged += Node_PropertyChanged;
         UpdateConnectionStatusText();
+        NavigateTo("connect");
     }
 
     public void NavigateTo(string tag)
