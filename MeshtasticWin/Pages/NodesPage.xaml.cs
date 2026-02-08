@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Data;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using Microsoft.Web.WebView2.Core;
@@ -21,7 +20,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Xml;
-using Windows.UI.Xaml.Data;
 using Windows.ApplicationModel;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -235,6 +233,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public ObservableCollection<NodeLive> NodesSource => MeshtasticWin.AppState.Nodes;
     public ObservableCollection<NodeLive> VisibleNodes { get; } = new();
     private readonly ObservableCollection<NodeLive> _allNodes = new();
+    private readonly DispatcherTimer _nodeSortRefreshTimer = new();
 
     private enum SortMode
     {
@@ -278,6 +277,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             _filterApplyTimer.Stop();
             RebuildVisibleNodes();
+        };
+
+        _nodeSortRefreshTimer.Interval = TimeSpan.FromMilliseconds(300);
+        _nodeSortRefreshTimer.Tick += (_, __) =>
+        {
+            _nodeSortRefreshTimer.Stop();
+            ApplyNodeSorting();
         };
 
         _throttle.Interval = TimeSpan.FromMilliseconds(350);
@@ -781,8 +787,56 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _ => SortMode.Alphabetical
         };
 
+        ApplyNodeSorting();
         RebuildVisibleNodes();
         TriggerMapUpdate();
+    }
+
+    private void ApplyNodeSorting()
+    {
+        if (VisibleNodes.Count <= 1)
+            return;
+
+        var indexed = VisibleNodes.Select((item, index) => (item, index));
+        var sorted = _sortMode switch
+        {
+            SortMode.LastActive => indexed
+                .OrderByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .ThenByDescending(entry => entry.item.LastHeardUtc)
+                .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList(),
+            _ => indexed
+                .OrderBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList()
+        };
+
+        ApplySortedOrder(VisibleNodes, sorted);
+    }
+
+    private void RefreshNodeSorting()
+    {
+        if (_nodeSortRefreshTimer.IsEnabled)
+            _nodeSortRefreshTimer.Stop();
+        _nodeSortRefreshTimer.Start();
+    }
+
+    private static void ApplySortedOrder<T>(ObservableCollection<T> collection, IList<T> desiredOrder)
+    {
+        for (var targetIndex = 0; targetIndex < desiredOrder.Count; targetIndex++)
+        {
+            var item = desiredOrder[targetIndex];
+            var currentIndex = collection.IndexOf(item);
+            if (currentIndex < 0 || currentIndex == targetIndex)
+                continue;
+
+            collection.Move(currentIndex, targetIndex);
+        }
     }
 
     private List<NodeLive> SortNodes(List<NodeLive> nodes)
@@ -792,12 +846,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             SortMode.LastActive => nodes
                 .OrderByDescending(n => n.LastHeardUtc != DateTime.MinValue)
                 .ThenByDescending(n => n.LastHeardUtc)
-                .ThenBy(n => n.SortNameKey, StringComparer.Ordinal)
-                .ThenBy(n => n.SortIdKey, StringComparer.Ordinal)
+                .ThenBy(n => n.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(n => n.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             _ => nodes
-                .OrderBy(n => n.SortNameKey, StringComparer.Ordinal)
-                .ThenBy(n => n.SortIdKey, StringComparer.Ordinal)
+                .OrderBy(n => n.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(n => n.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
     }
