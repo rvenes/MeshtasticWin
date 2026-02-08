@@ -94,6 +94,9 @@
     const markers = new Map(); // idHex -> L.Marker
     const labels  = new Map(); // idHex -> L.Marker (divIcon)
     const tracks = new Map(); // nodeId -> { polyline, markersLayer, pointsCount }
+    let routeForwardLayer = null;
+    let routeBackLayer = null;
+    let routeMarkers = null;
     let selectedId = null;
     let peekMarker = null;
     let peekTimer = null;
@@ -337,6 +340,82 @@
       clearPeek();
     }
 
+    function mwRouteClear(){
+      if (routeForwardLayer) { map.removeLayer(routeForwardLayer); routeForwardLayer = null; }
+      if (routeBackLayer) { map.removeLayer(routeBackLayer); routeBackLayer = null; }
+      if (routeMarkers) { map.removeLayer(routeMarkers); routeMarkers = null; }
+    }
+
+    function segmentStyle(q, dashed){
+      let weight = 4;
+      let opacity = 0.9;
+      if (q !== null && q !== undefined && !isNaN(q)){
+        const norm = Math.max(0, Math.min(1, (q + 10) / 20));
+        weight = 3 + (norm * 3);
+        opacity = 0.4 + (norm * 0.6);
+      }
+      const style = { weight, opacity };
+      if (dashed) style.dashArray = "6,6";
+      return style;
+    }
+
+    function drawRouteSegments(points, qualities, color, dashed){
+      if (!points || points.length < 2) return null;
+      const layer = L.layerGroup();
+      for (let i = 0; i < points.length - 1; i++){
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const q = (qualities && i < qualities.length) ? qualities[i] : null;
+        const style = segmentStyle(q, dashed);
+        const poly = L.polyline([[p1.lat, p1.lon], [p2.lat, p2.lon]], {
+          color,
+          weight: style.weight,
+          opacity: style.opacity,
+          dashArray: style.dashArray
+        });
+        poly.addTo(layer);
+      }
+      layer.addTo(map);
+      return layer;
+    }
+
+    function addRouteMarkers(points){
+      if (!points || points.length === 0) return;
+      if (!routeMarkers) routeMarkers = L.layerGroup().addTo(map);
+      for (const p of points){
+        const marker = L.circleMarker([p.lat, p.lon], {
+          radius: 5,
+          color: '#f57c00',
+          weight: 2,
+          fillColor: '#ffb74d',
+          fillOpacity: 0.9
+        });
+        if (p.label) {
+          marker.bindTooltip(escapeHtml(p.label), { direction:'top', sticky:true, opacity:0.9 });
+        }
+        marker.addTo(routeMarkers);
+      }
+    }
+
+    function mwRouteSet(forward, back){
+      mwRouteClear();
+      const forwardPoints = forward?.points || [];
+      const backPoints = back?.points || [];
+
+      routeForwardLayer = drawRouteSegments(forwardPoints, forward?.qualities, '#ff9800', false);
+      routeBackLayer = drawRouteSegments(backPoints, back?.qualities, '#ff9800', true);
+      addRouteMarkers(forwardPoints);
+      addRouteMarkers(backPoints);
+
+      const bounds = [];
+      for (const p of forwardPoints) bounds.push([p.lat, p.lon]);
+      for (const p of backPoints) bounds.push([p.lat, p.lon]);
+      if (bounds.length > 0) {
+        const b = L.latLngBounds(bounds);
+        if (b.isValid()) map.fitBounds(b.pad(0.25));
+      }
+    }
+
     function closeAllTooltips(){
       for (const m of markers.values()){
         m.closeTooltip();
@@ -363,6 +442,8 @@
         if (msg.type === "trackAppend") { mwTrackAppend(msg.idHex, msg.point); return; }
         if (msg.type === "trackClear") { mwTrackClear(msg.idHex); return; }
         if (msg.type === "trackClearAll") { mwTrackClearAll(); return; }
+        if (msg.type === "routeSet") { mwRouteSet(msg.forward, msg.back); return; }
+        if (msg.type === "routeClear") { mwRouteClear(); return; }
       });
     }
 

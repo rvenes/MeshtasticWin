@@ -66,7 +66,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private bool _powerMetricsTabIndicator;
     private bool _detectionSensorTabIndicator;
 
-    private string _traceRouteLogText = "No log entries yet.";
     private string _powerMetricsLogText = "No log entries yet.";
     private string _detectionSensorLogText = "No log entries yet.";
 
@@ -75,6 +74,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private int _positionLogRetentionDays = 7;
     private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
     public ObservableCollection<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
+    public ObservableCollection<TraceRouteLogEntry> TraceRouteLogEntries { get; } = new();
+    private string? _traceRouteNodeId;
+    private TraceRouteLogEntry? _selectedTraceRouteEntry;
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -97,6 +99,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(IsTraceRouteEnabled));
             OnChanged(nameof(TraceRouteButtonText));
             OnChanged(nameof(GpsTrackButtonText));
+
+            SelectedTraceRouteEntry = null;
+            if (TraceRouteDetailsTip is not null)
+                TraceRouteDetailsTip.IsOpen = false;
 
             if (_selected is not null)
             {
@@ -178,14 +184,22 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     public string DeviceMetricsCountText => $"Readings Total: {_deviceMetricSamples.Count}";
 
-    public string TraceRouteLogText
+    public TraceRouteLogEntry? SelectedTraceRouteEntry
     {
-        get => _traceRouteLogText;
+        get => _selectedTraceRouteEntry;
         private set
         {
-            if (_traceRouteLogText == value) return;
-            _traceRouteLogText = value;
-            OnChanged(nameof(TraceRouteLogText));
+            if (_selectedTraceRouteEntry == value) return;
+            _selectedTraceRouteEntry = value;
+            OnChanged(nameof(SelectedTraceRouteEntry));
+            OnChanged(nameof(TraceRouteDetailTitle));
+            OnChanged(nameof(TraceRouteDetailHeader));
+            OnChanged(nameof(TraceRouteDetailRoute));
+            OnChanged(nameof(TraceRouteDetailRouteBack));
+            OnChanged(nameof(TraceRouteDetailRouteBackVisibility));
+            OnChanged(nameof(TraceRouteDetailMetrics));
+            OnChanged(nameof(TraceRouteDetailMetricsVisibility));
+            OnChanged(nameof(CanViewTraceRouteMap));
         }
     }
 
@@ -218,6 +232,20 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public Visibility TraceRouteTabIndicatorVisibility => _traceRouteTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PowerMetricsTabIndicatorVisibility => _powerMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DetectionSensorTabIndicatorVisibility => _detectionSensorTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TraceRouteEmptyVisibility => TraceRouteLogEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public string TraceRouteDetailTitle => SelectedTraceRouteEntry is null
+        ? "Trace Route Details"
+        : SelectedTraceRouteEntry.IsPassive ? "Passive Trace Route" : "Active Trace Route";
+
+    public string TraceRouteDetailHeader => SelectedTraceRouteEntry?.OverlayHeaderText ?? "";
+    public string TraceRouteDetailRoute => SelectedTraceRouteEntry?.OverlayRouteText ?? "";
+    public string TraceRouteDetailRouteBack => SelectedTraceRouteEntry?.OverlayRouteBackText ?? "";
+    public Visibility TraceRouteDetailRouteBackVisibility =>
+        string.IsNullOrWhiteSpace(SelectedTraceRouteEntry?.OverlayRouteBackText) ? Visibility.Collapsed : Visibility.Visible;
+    public string TraceRouteDetailMetrics => SelectedTraceRouteEntry?.OverlayMetricsText ?? "";
+    public Visibility TraceRouteDetailMetricsVisibility => SelectedTraceRouteEntry?.MetricsVisibility ?? Visibility.Collapsed;
+    public bool CanViewTraceRouteMap => SelectedTraceRouteEntry?.CanViewRoute ?? false;
 
     public string NodeCountsText
     {
@@ -247,6 +275,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         InitializeComponent();
 
         _deviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
+        TraceRouteLogEntries.CollectionChanged += (_, __) => OnChanged(nameof(TraceRouteEmptyVisibility));
 
         SortCombo.Items.Add("Sort: Alphabetical A–Z");
         SortCombo.Items.Add("Sort: Alphabetical Z–A");
@@ -948,6 +977,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _enabledTrackNodeIds.Clear();
         _lastTrackPointByNode.Clear();
         SendTrackClearAll();
+        SendRouteClear();
         OnChanged(nameof(GpsTrackButtonText));
     }
 
@@ -1380,7 +1410,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return;
 
         RefreshDeviceMetricsSamples();
-        TraceRouteLogText = ReadLogText(LogKind.TraceRoute);
+        RefreshTraceRouteEntries();
         PowerMetricsLogText = ReadLogText(LogKind.PowerMetrics);
         DetectionSensorLogText = ReadLogText(LogKind.DetectionSensor);
 
@@ -1516,6 +1546,128 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private void ClearTabIndicator(LogKind kind)
         => SetTabIndicator(kind, false);
 
+    private void TraceRouteLogList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not TraceRouteLogEntry entry)
+            return;
+
+        SelectedTraceRouteEntry = entry;
+        if (TraceRouteDetailsTip is not null)
+        {
+            TraceRouteDetailsTip.Target = TraceRouteLogList.ContainerFromItem(entry) as FrameworkElement ?? TraceRouteLogList;
+            TraceRouteDetailsTip.IsOpen = true;
+        }
+    }
+
+    private void TraceRouteViewMap_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTraceRouteEntry is null || !SelectedTraceRouteEntry.CanViewRoute)
+            return;
+
+        if (!_mapReady || MapView.CoreWebView2 is null)
+            return;
+
+        DetailsTabs.SelectedIndex = 0;
+        SendRouteSet(
+            SelectedTraceRouteEntry.ForwardPoints,
+            SelectedTraceRouteEntry.ForwardQualities,
+            SelectedTraceRouteEntry.BackPoints,
+            SelectedTraceRouteEntry.BackQualities);
+    }
+
+    private void RefreshTraceRouteEntries()
+    {
+        if (Selected is null)
+        {
+            TraceRouteLogEntries.Clear();
+            _traceRouteNodeId = null;
+            return;
+        }
+
+        var lines = NodeLogArchive.ReadTail(ToArchiveType(LogKind.TraceRoute), Selected.IdHex, maxLines: 400);
+        var entries = lines
+            .Select(BuildTraceRouteEntry)
+            .Where(entry => entry is not null)
+            .Select(entry => entry!)
+            .ToList();
+
+        entries.Reverse();
+        UpdateTraceRouteEntries(entries);
+    }
+
+    private void UpdateTraceRouteEntries(IReadOnlyList<TraceRouteLogEntry> entries)
+    {
+        var nodeId = Selected?.IdHex;
+        if (nodeId is null)
+        {
+            TraceRouteLogEntries.Clear();
+            _traceRouteNodeId = null;
+            return;
+        }
+
+        if (!string.Equals(_traceRouteNodeId, nodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            TraceRouteLogEntries.Clear();
+            foreach (var entry in entries)
+                TraceRouteLogEntries.Add(entry);
+            _traceRouteNodeId = nodeId;
+            return;
+        }
+
+        if (TraceRouteLogEntries.Count == 0)
+        {
+            foreach (var entry in entries)
+                TraceRouteLogEntries.Add(entry);
+            return;
+        }
+
+        if (entries.Count == 0)
+        {
+            TraceRouteLogEntries.Clear();
+            return;
+        }
+
+        var existingFirst = TraceRouteLogEntries[0].RawLine;
+        var matchIndex = -1;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].RawLine == existingFirst)
+            {
+                matchIndex = i;
+                break;
+            }
+        }
+
+        if (matchIndex < 0)
+        {
+            TraceRouteLogEntries.Clear();
+            foreach (var entry in entries)
+                TraceRouteLogEntries.Add(entry);
+            return;
+        }
+
+        if (matchIndex > 0)
+        {
+            for (var i = matchIndex - 1; i >= 0; i--)
+                TraceRouteLogEntries.Insert(0, entries[i]);
+        }
+
+        var minCount = Math.Min(TraceRouteLogEntries.Count, entries.Count);
+        for (var i = 0; i < minCount; i++)
+            TraceRouteLogEntries[i].UpdateFrom(entries[i]);
+
+        if (entries.Count < TraceRouteLogEntries.Count)
+        {
+            for (var i = TraceRouteLogEntries.Count - 1; i >= entries.Count; i--)
+                TraceRouteLogEntries.RemoveAt(i);
+        }
+        else if (entries.Count > TraceRouteLogEntries.Count)
+        {
+            for (var i = TraceRouteLogEntries.Count; i < entries.Count; i++)
+                TraceRouteLogEntries.Add(entries[i]);
+        }
+    }
+
     private string ReadLogText(LogKind kind)
     {
         if (Selected is null)
@@ -1524,9 +1676,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var lines = NodeLogArchive.ReadTail(ToArchiveType(kind), Selected.IdHex, maxLines: 400);
         if (lines.Length == 0)
             return "No log entries yet.";
-
-        if (kind == LogKind.TraceRoute)
-            return string.Join(Environment.NewLine, lines.Select(FormatTraceRouteLine));
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -1760,6 +1909,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         try
         {
             var packetId = await RadioClient.Instance.SendTraceRouteRequestAsync((uint)Selected.NodeNum);
+            TraceRouteContext.RegisterActiveTraceRoute((uint)Selected.NodeNum);
             RadioClient.Instance.AddLogFromUiThread($"Trace Route sent to {Selected.Name} (packetId=0x{packetId:x8}).");
             StartTraceRouteCooldown();
         }
@@ -1869,6 +2019,28 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MapView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"trackClearAll\"}");
     }
 
+    private void SendRouteClear()
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        MapView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"routeClear\"}");
+    }
+
+    private void SendRouteSet(
+        IReadOnlyList<RouteMapPoint> forwardPoints,
+        IReadOnlyList<double?> forwardQualities,
+        IReadOnlyList<RouteMapPoint> backPoints,
+        IReadOnlyList<double?> backQualities)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        var payload = new
+        {
+            type = "routeSet",
+            forward = new { points = forwardPoints, qualities = forwardQualities },
+            back = new { points = backPoints, qualities = backQualities }
+        };
+        MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
+    }
+
     private static string FormatRelativeAge(DateTime utcTimestamp)
     {
         if (utcTimestamp == DateTime.MinValue)
@@ -1926,82 +2098,22 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private static string FormatTraceRouteLine(string rawLine)
     {
-        var parts = rawLine.Split(new[] { " | " }, 2, StringSplitOptions.None);
-        var tsPart = parts.Length > 0 ? parts[0] : "";
-        var summary = parts.Length > 1 ? parts[1] : "";
+        var entry = BuildTraceRouteEntry(rawLine);
+        if (entry is null)
+            return rawLine;
 
-        var timestamp = TryParseTimestamp(tsPart);
-        var tsText = timestamp?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? tsPart;
-
-        var parsed = ParseTraceRouteSummary(summary);
-        var hasForward = parsed.Route.Count > 0;
-        var hasBack = parsed.RouteBack.Count > 0;
-        var hopPath = hasForward ? parsed.Route : parsed.RouteBack;
-        var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveNodeName) : Array.Empty<string>();
-
-        var fromText = parsed.FromNode.HasValue
-            ? ResolveNodeName(parsed.FromNode.Value)
-            : parsed.Route.Count > 0 ? ResolveNodeName(parsed.Route[0])
-            : parsed.RouteBack.Count > 0 ? ResolveNodeName(parsed.RouteBack[0]) : "—";
-        var toText = parsed.ToNode.HasValue
-            ? ResolveNodeName(parsed.ToNode.Value)
-            : parsed.Route.Count > 0 ? ResolveNodeName(parsed.Route[^1])
-            : parsed.RouteBack.Count > 0 ? ResolveNodeName(parsed.RouteBack[^1]) : "—";
-
-        var lines = new List<string>();
-        var header = new StringBuilder();
-        header.Append(tsText).Append(" | ");
-        if (parsed.IsPassive)
-            header.Append("Passive ");
-        header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
-        header.Append(" | Hops: ").Append(hopPath.Count);
-        if (parsed.Channel.HasValue)
-            header.Append(" | Ch ").Append(parsed.Channel.Value);
-        lines.Add(header.ToString());
-
-        var primaryMetrics = new List<string>();
-        var primarySnrList = hasForward ? parsed.SnrTowards : parsed.SnrBack;
-        if (primarySnrList.Count > 0)
+        var lines = new List<string>
         {
-            var snrLabel = hasForward ? "toSNR" : "backSNR";
-            var listLabel = hasForward ? "snrTowards" : "snrBack";
-            primaryMetrics.Add($"{snrLabel}={FormatSnrValue(primarySnrList[^1])}");
-            primaryMetrics.Add($"{listLabel}=[{string.Join(", ", primarySnrList.Select(FormatSnrValue))}]");
-        }
-        if (parsed.RxSnr.HasValue)
-            primaryMetrics.Add($"rxSNR={FormatSnrValue(parsed.RxSnr.Value)}");
-        if (parsed.RxRssi.HasValue)
-            primaryMetrics.Add($"rxRSSI={parsed.RxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture)}");
+            entry.HeaderText,
+            entry.PathText
+        };
 
-        var pathText = hopNames.Any() ? string.Join(" -> ", hopNames) : "—";
-        var primaryLine = $"{(hasForward ? "Path" : "Path Back")}: {pathText}";
-        if (primaryMetrics.Count > 0)
-            primaryLine += " | " + string.Join(" | ", primaryMetrics);
-        lines.Add(primaryLine);
-
-        if (hasForward && hasBack)
+        if (entry.RouteBackVisibility == Visibility.Visible)
         {
-            var backFromText = parsed.ToNode.HasValue
-                ? ResolveNodeName(parsed.ToNode.Value)
-                : ResolveNodeName(parsed.RouteBack[0]);
-            var backToText = parsed.FromNode.HasValue
-                ? ResolveNodeName(parsed.FromNode.Value)
-                : ResolveNodeName(parsed.RouteBack[^1]);
-
-            lines.Add($"Route Back: {backFromText} -> {backToText} | Hops: {parsed.RouteBack.Count}");
-
-            var backPath = parsed.RouteBack.Select(ResolveNodeName);
-            var backMetrics = new List<string>();
-            if (parsed.SnrBack.Count > 0)
-            {
-                backMetrics.Add($"backSNR={FormatSnrValue(parsed.SnrBack[^1])}");
-                backMetrics.Add($"snrBack=[{string.Join(", ", parsed.SnrBack.Select(FormatSnrValue))}]");
-            }
-
-            var backLine = $"Path Back: {string.Join(" -> ", backPath)}";
-            if (backMetrics.Count > 0)
-                backLine += " | " + string.Join(" | ", backMetrics);
-            lines.Add(backLine);
+            if (!string.IsNullOrWhiteSpace(entry.RouteBackHeaderText))
+                lines.Add(entry.RouteBackHeaderText);
+            if (!string.IsNullOrWhiteSpace(entry.RouteBackPathText))
+                lines.Add(entry.RouteBackPathText);
         }
 
         return string.Join(Environment.NewLine, lines);
@@ -2012,6 +2124,254 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
             return parsed;
         return null;
+    }
+
+    private static TraceRouteLogEntry? BuildTraceRouteEntry(string rawLine)
+    {
+        if (string.IsNullOrWhiteSpace(rawLine))
+            return null;
+
+        var parts = rawLine.Split(new[] { " | " }, 2, StringSplitOptions.None);
+        var tsPart = parts.Length > 0 ? parts[0] : "";
+        var summary = parts.Length > 1 ? parts[1] : "";
+
+        var timestamp = TryParseTimestamp(tsPart);
+        var tsText = timestamp?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? tsPart;
+
+        var parsed = ParseTraceRouteSummary(summary);
+        var isActive = parsed.IsActive;
+        var isPassive = !isActive;
+        var hasForward = parsed.Route.Count > 0;
+        var hasBack = parsed.RouteBack.Count > 0;
+        var showBack = hasBack && (isActive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase));
+
+        var hopPath = hasForward ? parsed.Route : parsed.RouteBack;
+        var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveHopLabel).ToList() : new List<string>();
+
+        var fromNode = parsed.FromNode
+            ?? (parsed.Route.Count > 0 ? (uint?)parsed.Route[0] : null)
+            ?? (parsed.RouteBack.Count > 0 ? (uint?)parsed.RouteBack[0] : null);
+        var toNode = parsed.ToNode
+            ?? (parsed.Route.Count > 0 ? (uint?)parsed.Route[^1] : null)
+            ?? (parsed.RouteBack.Count > 0 ? (uint?)parsed.RouteBack[^1] : null);
+
+        var fromText = ResolveNodeIdentityDetailed(fromNode);
+        var toText = ResolveNodeIdentityDetailed(toNode);
+
+        var tag = isActive ? "[ACTIVE]" : "[PASSIVE]";
+        var header = new StringBuilder();
+        header.Append(tag).Append(' ').Append(tsText).Append(" | ");
+        if (hasForward || !isActive)
+            header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
+        else
+            header.Append("Route: ").Append(fromText).Append(" -> ").Append(toText);
+        header.Append(" | Hops: ").Append(hopPath.Count);
+        if (parsed.Channel.HasValue)
+            header.Append(" | Ch ").Append(parsed.Channel.Value);
+
+        var pathLabel = hasForward ? "Path" : "Path Back";
+        var pathText = hopNames.Count > 0 ? string.Join(" -> ", hopNames) : "No hops recorded";
+        var primaryMetrics = BuildPrimaryMetrics(parsed, hasForward);
+        var pathLine = $"{pathLabel}: {pathText}";
+        if (isActive && !hasForward)
+            pathLine = "Route: (no forward route recorded)";
+        if (!string.IsNullOrWhiteSpace(primaryMetrics))
+            pathLine += " | " + primaryMetrics;
+
+        string? backHeader = null;
+        string? backLine = null;
+        if (showBack && parsed.RouteBack.Count > 0 && hasForward)
+        {
+            var backFromText = ResolveNodeIdentityDetailed(parsed.ToNode ?? parsed.RouteBack[0]);
+            var backToText = ResolveNodeIdentityDetailed(parsed.FromNode ?? parsed.RouteBack[^1]);
+            backHeader = $"Route Back: {backFromText} -> {backToText} | Hops: {parsed.RouteBack.Count}";
+            var backPath = string.Join(" -> ", parsed.RouteBack.Select(ResolveHopLabel));
+            var backMetrics = BuildBackMetrics(parsed);
+            backLine = $"Path Back: {backPath}";
+            if (!string.IsNullOrWhiteSpace(backMetrics))
+                backLine += " | " + backMetrics;
+        }
+        var forwardHops = parsed.Route.Count > 0
+            ? string.Join(" -> ", parsed.Route.Select(ResolveHopLabel))
+            : "No forward route recorded";
+        var overlayHeader = $"{tag} {tsText} | {fromText} -> {toText} | Hops: {hopPath.Count}";
+        var overlayRoute = $"Route: {forwardHops}";
+        var overlayBack = showBack && parsed.RouteBack.Count > 0
+            ? $"Route Back: {string.Join(" -> ", parsed.RouteBack.Select(ResolveHopLabel))}"
+            : null;
+        var overlayMetrics = BuildOverlayMetrics(parsed, hasForward, showBack);
+
+        var (forwardPoints, forwardQualities) = BuildRouteMapPoints(parsed.Route, parsed.FromNode, parsed.ToNode, parsed.SnrTowards);
+        var (backPoints, backQualities) = BuildRouteMapPoints(parsed.RouteBack, parsed.ToNode, parsed.FromNode, parsed.SnrBack);
+        var canViewRoute = forwardPoints.Count >= 2 || backPoints.Count >= 2;
+
+        return new TraceRouteLogEntry(
+            rawLine,
+            timestamp?.UtcDateTime ?? DateTime.MinValue,
+            header.ToString(),
+            pathLine,
+            backHeader,
+            backLine,
+            overlayHeader,
+            overlayRoute,
+            overlayBack,
+            overlayMetrics,
+            isPassive,
+            hopPath.Count,
+            forwardPoints,
+            backPoints,
+            forwardQualities,
+            backQualities,
+            canViewRoute);
+    }
+
+    private static string BuildPrimaryMetrics(TraceRouteParsed parsed, bool hasForward)
+    {
+        var metrics = new List<string>();
+        var primarySnrList = hasForward ? parsed.SnrTowards : parsed.SnrBack;
+        if (primarySnrList.Count > 0)
+        {
+            var snrLabel = hasForward ? "toSNR" : "backSNR";
+            var listLabel = hasForward ? "snrTowards" : "snrBack";
+            metrics.Add($"{snrLabel}={FormatSnrValue(primarySnrList[^1])}");
+            metrics.Add($"{listLabel}=[{string.Join(", ", primarySnrList.Select(FormatSnrValue))}]");
+        }
+        if (parsed.RxSnr.HasValue)
+            metrics.Add($"rxSNR={FormatSnrValue(parsed.RxSnr.Value)}");
+        if (parsed.RxRssi.HasValue)
+            metrics.Add($"rxRSSI={parsed.RxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture)}");
+
+        return string.Join(" | ", metrics);
+    }
+
+    private static string BuildBackMetrics(TraceRouteParsed parsed)
+    {
+        var metrics = new List<string>();
+        if (parsed.SnrBack.Count > 0)
+        {
+            metrics.Add($"backSNR={FormatSnrValue(parsed.SnrBack[^1])}");
+            metrics.Add($"snrBack=[{string.Join(", ", parsed.SnrBack.Select(FormatSnrValue))}]");
+        }
+        return string.Join(" | ", metrics);
+    }
+
+    private static string? BuildOverlayMetrics(TraceRouteParsed parsed, bool hasForward, bool showBack)
+    {
+        var metrics = new List<string>();
+        var primarySnrList = hasForward ? parsed.SnrTowards : parsed.SnrBack;
+        if (primarySnrList.Count > 0)
+        {
+            var snrLabel = hasForward ? "toSNR" : "backSNR";
+            var listLabel = hasForward ? "snrTowards" : "snrBack";
+            metrics.Add($"{snrLabel}={FormatSnrValue(primarySnrList[^1])}");
+            metrics.Add($"{listLabel}=[{string.Join(", ", primarySnrList.Select(FormatSnrValue))}]");
+        }
+        if (showBack && parsed.SnrBack.Count > 0 && hasForward)
+        {
+            metrics.Add($"backSNR={FormatSnrValue(parsed.SnrBack[^1])}");
+            metrics.Add($"snrBack=[{string.Join(", ", parsed.SnrBack.Select(FormatSnrValue))}]");
+        }
+        if (parsed.RxSnr.HasValue)
+            metrics.Add($"rxSNR={FormatSnrValue(parsed.RxSnr.Value)}");
+        if (parsed.RxRssi.HasValue)
+            metrics.Add($"rxRSSI={parsed.RxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture)}");
+
+        return metrics.Count > 0 ? "Metrics: " + string.Join(" | ", metrics) : null;
+    }
+
+    private static (IReadOnlyList<RouteMapPoint> Points, IReadOnlyList<double?> Qualities) BuildRouteMapPoints(
+        IReadOnlyList<uint> hops,
+        uint? fromNode,
+        uint? toNode,
+        IReadOnlyList<int> snrValues)
+    {
+        var route = new List<uint>();
+        if (hops.Count > 0)
+        {
+            route.AddRange(hops);
+            if (fromNode.HasValue && route[0] != fromNode.Value)
+                route.Insert(0, fromNode.Value);
+            if (toNode.HasValue && route[^1] != toNode.Value)
+                route.Add(toNode.Value);
+        }
+        else
+        {
+            if (fromNode.HasValue)
+                route.Add(fromNode.Value);
+            if (toNode.HasValue && (!fromNode.HasValue || toNode.Value != fromNode.Value))
+                route.Add(toNode.Value);
+        }
+
+        if (route.Count == 0)
+            return (Array.Empty<RouteMapPoint>(), Array.Empty<double?>());
+
+        var points = new List<RouteMapPoint>();
+        foreach (var nodeNum in route)
+        {
+            var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.NodeNum == nodeNum);
+            if (node is null || !node.HasPosition)
+                continue;
+
+            points.Add(new RouteMapPoint(node.Latitude, node.Longitude, ResolveHopLabel(nodeNum)));
+        }
+
+        var segmentCount = Math.Max(0, points.Count - 1);
+        var qualities = new List<double?>(segmentCount);
+        for (var i = 0; i < segmentCount; i++)
+        {
+            qualities.Add(i < snrValues.Count ? snrValues[i] : null);
+        }
+
+        return (points, qualities);
+    }
+
+    private static string ResolveHopLabel(uint nodeNum)
+    {
+        var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.NodeNum == nodeNum);
+        if (node is null)
+            return $"0x{nodeNum:x8}";
+
+        if (!string.IsNullOrWhiteSpace(node.LongName))
+            return node.LongName;
+        if (!string.IsNullOrWhiteSpace(node.ShortName))
+            return node.ShortName;
+        if (!string.IsNullOrWhiteSpace(node.ShortId))
+            return node.ShortId;
+        return node.IdHex ?? $"0x{nodeNum:x8}";
+    }
+
+    private static string ResolveNodeIdentityDetailed(uint? nodeNum)
+    {
+        if (!nodeNum.HasValue)
+            return "Unknown node";
+
+        var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.NodeNum == nodeNum.Value);
+        var hex = node?.IdHex ?? $"0x{nodeNum.Value:x8}";
+        var shortName = node?.ShortName;
+        var longName = node?.LongName;
+        var shortId = node?.ShortId;
+
+        if (!string.IsNullOrWhiteSpace(longName))
+        {
+            var detail = ResolveShortIdentity(shortName, shortId, hex, nodeNum.Value);
+            return $"{longName} ({detail})";
+        }
+
+        return ResolveShortIdentity(shortName, shortId, hex, nodeNum.Value);
+    }
+
+    private static string ResolveShortIdentity(string? shortName, string? shortId, string hex, uint nodeNum)
+    {
+        var shortLabel = !string.IsNullOrWhiteSpace(shortName)
+            ? shortName!
+            : !string.IsNullOrWhiteSpace(shortId)
+                ? shortId!
+                : hex;
+
+        if (!string.IsNullOrWhiteSpace(shortLabel) && !string.Equals(shortLabel, hex, StringComparison.OrdinalIgnoreCase))
+            return $"{shortLabel} / {hex}";
+
+        return !string.IsNullOrWhiteSpace(hex) ? hex : nodeNum.ToString(CultureInfo.InvariantCulture);
     }
 
     private static TraceRouteParsed ParseTraceRouteSummary(string summary)
@@ -2027,6 +2387,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         uint? channel = null;
         string? variant = null;
         bool isPassive = false;
+        bool isActive = false;
 
         var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var currentLabel = "";
@@ -2088,19 +2449,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                         isPassive = true;
                     }
                     break;
+                case "active:":
+                    if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase) ||
+                        token == "1")
+                    {
+                        isActive = true;
+                    }
+                    break;
             }
         }
 
-        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi, fromNode, toNode, channel, variant, isPassive);
-    }
-
-    private static string ResolveNodeName(uint nodeNum)
-    {
-        var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.NodeNum == nodeNum);
-        if (node is not null)
-            return node.Name;
-
-        return $"0x{nodeNum:x8}";
+        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi, fromNode, toNode, channel, variant, isPassive, isActive);
     }
 
     private static string FormatSnrValue(int value)
@@ -2370,7 +2730,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         uint? ToNode,
         uint? Channel,
         string? Variant,
-        bool IsPassive);
+        bool IsPassive,
+        bool IsActive);
 
     private enum LogKind
     {
