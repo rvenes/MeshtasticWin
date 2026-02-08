@@ -995,7 +995,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             await OpenMapsForPositionAsync(entry.Lat, entry.Lon);
     }
 
-    private async void OpenCurrentPosition_Click(object sender, RoutedEventArgs e)
+    private async void OpenCurrentPosition_Click(object _, RoutedEventArgs _1)
     {
         if (Selected is null || !Selected.HasPosition)
             return;

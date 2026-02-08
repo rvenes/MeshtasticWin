@@ -14,6 +14,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.UI.Xaml.Data;
 using Windows.System;
 
 namespace MeshtasticWin.Pages;
@@ -240,7 +241,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             || (node.ShortId?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
-    private void ChatsView_Filter(object sender, Microsoft.UI.Xaml.Data.FilterEventArgs e)
+    private void ChatsView_Filter(object sender, FilterEventArgs e)
     {
         if (e.Item is not ChatListItemVm item)
         {
