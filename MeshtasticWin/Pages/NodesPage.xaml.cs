@@ -1934,32 +1934,77 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var tsText = timestamp?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? tsPart;
 
         var parsed = ParseTraceRouteSummary(summary);
-        var hopPath = parsed.Route.Count > 0 ? parsed.Route : parsed.RouteBack;
+        var hasForward = parsed.Route.Count > 0;
+        var hasBack = parsed.RouteBack.Count > 0;
+        var hopPath = hasForward ? parsed.Route : parsed.RouteBack;
         var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveNodeName) : Array.Empty<string>();
-        var hopCount = hopPath.Count;
 
-        var toSnr = parsed.SnrTowards.Count > 0
-            ? FormatSnrValue(parsed.SnrTowards[^1])
-            : parsed.RxSnr.HasValue ? FormatSnrValue(parsed.RxSnr.Value) : "—";
-        var backSnr = parsed.SnrBack.Count > 0
-            ? FormatSnrValue(parsed.SnrBack[^1])
-            : parsed.RxSnr.HasValue ? FormatSnrValue(parsed.RxSnr.Value) : "—";
+        var fromText = parsed.FromNode.HasValue
+            ? ResolveNodeName(parsed.FromNode.Value)
+            : parsed.Route.Count > 0 ? ResolveNodeName(parsed.Route[0])
+            : parsed.RouteBack.Count > 0 ? ResolveNodeName(parsed.RouteBack[0]) : "—";
+        var toText = parsed.ToNode.HasValue
+            ? ResolveNodeName(parsed.ToNode.Value)
+            : parsed.Route.Count > 0 ? ResolveNodeName(parsed.Route[^1])
+            : parsed.RouteBack.Count > 0 ? ResolveNodeName(parsed.RouteBack[^1]) : "—";
 
-        var snrTowardsText = parsed.SnrTowards.Count > 0
-            ? $" | snrTowards=[{string.Join(", ", parsed.SnrTowards.Select(FormatSnrValue))}]"
-            : "";
-        var snrBackText = parsed.SnrBack.Count > 0
-            ? $" | snrBack=[{string.Join(", ", parsed.SnrBack.Select(FormatSnrValue))}]"
-            : "";
-        var rxMetricsText = "";
+        var lines = new List<string>();
+        var header = new StringBuilder();
+        header.Append(tsText).Append(" | ");
+        if (parsed.IsPassive)
+            header.Append("Passive ");
+        header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
+        header.Append(" | Hops: ").Append(hopPath.Count);
+        if (parsed.Channel.HasValue)
+            header.Append(" | Ch ").Append(parsed.Channel.Value);
+        lines.Add(header.ToString());
+
+        var primaryMetrics = new List<string>();
+        var primarySnrList = hasForward ? parsed.SnrTowards : parsed.SnrBack;
+        if (primarySnrList.Count > 0)
+        {
+            var snrLabel = hasForward ? "toSNR" : "backSNR";
+            var listLabel = hasForward ? "snrTowards" : "snrBack";
+            primaryMetrics.Add($"{snrLabel}={FormatSnrValue(primarySnrList[^1])}");
+            primaryMetrics.Add($"{listLabel}=[{string.Join(", ", primarySnrList.Select(FormatSnrValue))}]");
+        }
         if (parsed.RxSnr.HasValue)
-            rxMetricsText += $" | rxSNR={FormatSnrValue(parsed.RxSnr.Value)}";
+            primaryMetrics.Add($"rxSNR={FormatSnrValue(parsed.RxSnr.Value)}");
         if (parsed.RxRssi.HasValue)
-            rxMetricsText += $" | rxRSSI={parsed.RxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture)}";
+            primaryMetrics.Add($"rxRSSI={parsed.RxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture)}");
 
         var pathText = hopNames.Any() ? string.Join(" -> ", hopNames) : "—";
+        var primaryLine = $"{(hasForward ? "Path" : "Path Back")}: {pathText}";
+        if (primaryMetrics.Count > 0)
+            primaryLine += " | " + string.Join(" | ", primaryMetrics);
+        lines.Add(primaryLine);
 
-        return $"{tsText} | hops={hopCount} | toSNR={toSnr} backSNR={backSnr}{snrTowardsText}{snrBackText}{rxMetricsText} | path: {pathText}";
+        if (hasForward && hasBack)
+        {
+            var backFromText = parsed.ToNode.HasValue
+                ? ResolveNodeName(parsed.ToNode.Value)
+                : ResolveNodeName(parsed.RouteBack[0]);
+            var backToText = parsed.FromNode.HasValue
+                ? ResolveNodeName(parsed.FromNode.Value)
+                : ResolveNodeName(parsed.RouteBack[^1]);
+
+            lines.Add($"Route Back: {backFromText} -> {backToText} | Hops: {parsed.RouteBack.Count}");
+
+            var backPath = parsed.RouteBack.Select(ResolveNodeName);
+            var backMetrics = new List<string>();
+            if (parsed.SnrBack.Count > 0)
+            {
+                backMetrics.Add($"backSNR={FormatSnrValue(parsed.SnrBack[^1])}");
+                backMetrics.Add($"snrBack=[{string.Join(", ", parsed.SnrBack.Select(FormatSnrValue))}]");
+            }
+
+            var backLine = $"Path Back: {string.Join(" -> ", backPath)}";
+            if (backMetrics.Count > 0)
+                backLine += " | " + string.Join(" | ", backMetrics);
+            lines.Add(backLine);
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static DateTimeOffset? TryParseTimestamp(string value)
@@ -1977,6 +2022,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var snrBack = new List<int>();
         double? rxSnr = null;
         double? rxRssi = null;
+        uint? fromNode = null;
+        uint? toNode = null;
+        uint? channel = null;
+        string? variant = null;
+        bool isPassive = false;
 
         var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var currentLabel = "";
@@ -2015,10 +2065,33 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                     if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var rxRssiValue))
                         rxRssi = rxRssiValue;
                     break;
+                case "from:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fromValue))
+                        fromNode = fromValue;
+                    break;
+                case "to:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var toValue))
+                        toNode = toValue;
+                    break;
+                case "channel:":
+                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var channelValue))
+                        channel = channelValue;
+                    break;
+                case "variant:":
+                    variant = token;
+                    break;
+                case "passive:":
+                    if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase) ||
+                        token == "1")
+                    {
+                        isPassive = true;
+                    }
+                    break;
             }
         }
 
-        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi);
+        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi, fromNode, toNode, channel, variant, isPassive);
     }
 
     private static string ResolveNodeName(uint nodeNum)
@@ -2292,7 +2365,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         List<uint> RouteBack,
         List<int> SnrBack,
         double? RxSnr,
-        double? RxRssi);
+        double? RxRssi,
+        uint? FromNode,
+        uint? ToNode,
+        uint? Channel,
+        string? Variant,
+        bool IsPassive);
 
     private enum LogKind
     {

@@ -121,9 +121,15 @@ public static class FromRadioRouter
 
         var portNum = TryGetPortNum(decodedObj);
 
+        uint? channelIndex = null;
+        if (TryGetUInt(packetObj, "Channel", out var channelValue))
+            channelIndex = channelValue;
+
         // --- ACK / ROUTING_APP ---
         if (portNum == RoutingAppPortNum)
         {
+            if (TryHandleRoutingTraceRouteFromPayload(decodedObj, fromNodeNum, toNodeNum, channelIndex, rxSnr, rxRssi, logToUi, out var routingSummary))
+                logToUi("TraceRoute (passive): " + routingSummary);
             TryHandleAck(decodedObj, fromNodeNum, logToUi);
             return;
         }
@@ -608,6 +614,107 @@ public static class FromRadioRouter
         var fromIdHex = $"0x{fromNodeNum:x8}";
         NodeLogArchive.Append(NodeLogType.TraceRoute, fromIdHex, DateTime.UtcNow, formatted);
         summary = formatted;
+        return true;
+    }
+
+    private static bool TryHandleRoutingTraceRouteFromPayload(object decodedObj, uint fromNodeNum, uint toNodeNum, uint? channelIndex, double? rxSnr, double? rxRssi, Action<string> logToUi, out string summary)
+    {
+        summary = "routing empty";
+        var payloadBytes = TryGetPayloadBytes(decodedObj);
+        if (payloadBytes is null || payloadBytes.Length == 0)
+            return false;
+
+        var routingType = FindTypeByName("Routing");
+        if (routingType is null)
+        {
+            summary = "Routing type not found";
+            return false;
+        }
+
+        var parser = routingType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        if (parser is null)
+        {
+            summary = "Routing.Parser missing";
+            return false;
+        }
+
+        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
+        if (parseFrom is null)
+        {
+            summary = "Routing.Parser.ParseFrom(byte[]) missing";
+            return false;
+        }
+
+        object? routingObj;
+        try
+        {
+            routingObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+        }
+        catch (Exception ex)
+        {
+            summary = $"Routing.ParseFrom exception: {ex.GetType().Name}: {ex.Message}";
+            return false;
+        }
+
+        if (routingObj is null)
+        {
+            summary = "Routing.ParseFrom returned null";
+            return false;
+        }
+
+        object? routeObj = null;
+        var variant = "";
+        var variantCaseProp = routingType.GetProperty("VariantCase", BindingFlags.Public | BindingFlags.Instance);
+        if (variantCaseProp?.GetValue(routingObj) is Enum variantCase)
+        {
+            var variantText = variantCase.ToString();
+            if (string.Equals(variantText, "RouteRequest", StringComparison.OrdinalIgnoreCase))
+            {
+                routeObj = routingType.GetProperty("RouteRequest", BindingFlags.Public | BindingFlags.Instance)?.GetValue(routingObj);
+                variant = "route_request";
+            }
+            else if (string.Equals(variantText, "RouteReply", StringComparison.OrdinalIgnoreCase))
+            {
+                routeObj = routingType.GetProperty("RouteReply", BindingFlags.Public | BindingFlags.Instance)?.GetValue(routingObj);
+                variant = "route_reply";
+            }
+        }
+
+        if (routeObj is null && TryGetObj(routingObj, "RouteRequest", out var routeRequestObj))
+        {
+            routeObj = routeRequestObj;
+            variant = "route_request";
+        }
+        else if (routeObj is null && TryGetObj(routingObj, "RouteReply", out var routeReplyObj))
+        {
+            routeObj = routeReplyObj;
+            variant = "route_reply";
+        }
+
+        if (routeObj is null)
+            return false;
+
+        var formatted = FormatProtoSingleLine(routeObj);
+        var sb = new StringBuilder();
+        sb.Append("passive: true ");
+        if (!string.IsNullOrWhiteSpace(variant))
+            sb.Append("variant: ").Append(variant).Append(' ');
+        sb.Append("from: ").Append(fromNodeNum).Append(' ');
+        if (toNodeNum != 0xFFFFFFFF)
+            sb.Append("to: ").Append(toNodeNum).Append(' ');
+        if (channelIndex.HasValue)
+            sb.Append("channel: ").Append(channelIndex.Value).Append(' ');
+        sb.Append(formatted);
+
+        if (rxSnr.HasValue)
+            sb.Append(" rx_snr: ").Append(rxSnr.Value.ToString("0.0", CultureInfo.InvariantCulture));
+        if (rxRssi.HasValue)
+            sb.Append(" rx_rssi: ").Append(rxRssi.Value.ToString("0.0", CultureInfo.InvariantCulture));
+
+        var summaryText = sb.ToString().Trim();
+        var fromIdHex = $"0x{fromNodeNum:x8}";
+        NodeLogArchive.Append(NodeLogType.TraceRoute, fromIdHex, DateTime.UtcNow, summaryText);
+        summary = summaryText;
         return true;
     }
 
