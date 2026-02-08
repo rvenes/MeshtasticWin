@@ -2,6 +2,7 @@
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Data;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using System;
@@ -13,6 +14,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.UI.Xaml.Data;
 using Windows.System;
 
 namespace MeshtasticWin.Pages;
