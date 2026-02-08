@@ -4,6 +4,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:MeshtasticWin.Pages">
 
+    <Page.Resources>
+        <CollectionViewSource x:Name="ChatsView" x:Key="ChatsView"/>
+    </Page.Resources>
+
 	    <Grid Padding="12">
 	        <Grid.ColumnDefinitions>
 	            <ColumnDefinition Width="360"/>

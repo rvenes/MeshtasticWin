@@ -584,6 +584,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             {
                 n.PropertyChanged += Node_PropertyChanged;
                 SeedLogWriteTimesForNode(n);
+                UpdateNodeVisibility(n);
             }
 
         if (e.OldItems is not null)
