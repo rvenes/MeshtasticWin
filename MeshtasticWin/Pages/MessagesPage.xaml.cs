@@ -2,7 +2,6 @@
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Data;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using System;
@@ -14,7 +13,6 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.UI.Xaml.Data;
 using Windows.System;
 
 namespace MeshtasticWin.Pages;
@@ -439,25 +437,24 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private void ApplyChatSorting()
     {
-        var view = ChatsView.View;
-        if (view is null)
+        if (ChatsView is null)
             return;
 
-        view.SortDescriptions.Clear();
+        ChatsView.SortDescriptions.Clear();
         switch (_sortMode)
         {
             case SortMode.LastActive:
-                view.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
-                view.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
-                view.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
+                ChatsView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
                 break;
             default:
-                view.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
-                view.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
                 break;
         }
 
-        view.Refresh();
+        ChatsView.View?.Refresh();
     }
 
     private void RefreshChatSorting()

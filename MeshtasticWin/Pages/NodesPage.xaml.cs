@@ -783,25 +783,24 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private void ApplyNodeSorting()
     {
-        var view = NodesView.View;
-        if (view is null)
+        if (NodesView is null)
             return;
 
-        view.SortDescriptions.Clear();
+        NodesView.SortDescriptions.Clear();
         switch (_sortMode)
         {
             case SortMode.LastActive:
-                view.SortDescriptions.Add(new SortDescription(nameof(NodeLive.LastHeardUtc), ListSortDirection.Descending));
-                view.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
-                view.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
+                NodesView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(NodeLive.LastHeardUtc), ListSortDirection.Descending));
+                NodesView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
+                NodesView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
                 break;
             default:
-                view.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
-                view.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
+                NodesView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
+                NodesView.SortDescriptions.Add(new Microsoft.UI.Xaml.Data.SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
                 break;
         }
 
-        view.Refresh();
+        NodesView.View?.Refresh();
     }
 
     private void RefreshNodeSorting()
