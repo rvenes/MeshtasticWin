@@ -15,7 +15,6 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
-using Windows.UI.Xaml.Data;
 
 namespace MeshtasticWin.Pages;
 
@@ -55,7 +54,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     private bool _suppressListEvent;
     private string _chatFilter = "";
     private SortMode _sortMode = SortMode.Alphabetical;
-    private ICollectionView ChatsView { get; }
+    private ObservableCollection<ChatListItemVm> ChatsView { get; }
 
     private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
@@ -63,6 +62,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     private readonly ChatListItemVm _primaryChatItem = ChatListItemVm.Primary();
     private readonly Dictionary<string, ChatListItemVm> _chatItemsByPeer = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _chatFilterRefreshTimer = new();
+    private readonly DispatcherTimer _chatSortRefreshTimer = new();
 
     private enum SortMode
     {
@@ -83,7 +83,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         SortCombo.SelectedIndex = 0;
 
         HideInactiveToggle.IsChecked = _hideInactive;
-        ChatsView = CollectionViewSource.GetDefaultView(VisibleChatItems);
+        ChatsView = VisibleChatItems;
         ApplyChatSorting();
 
         MeshtasticWin.AppState.Messages.CollectionChanged += Messages_CollectionChanged;
@@ -96,6 +96,13 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         {
             _chatFilterRefreshTimer.Stop();
             RebuildVisibleChats();
+        };
+
+        _chatSortRefreshTimer.Interval = TimeSpan.FromMilliseconds(300);
+        _chatSortRefreshTimer.Tick += (_, __) =>
+        {
+            _chatSortRefreshTimer.Stop();
+            ApplyChatSorting();
         };
 
         _chatItemsByPeer[""] = _primaryChatItem;
@@ -449,14 +456,61 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             SortMode.LastActive => items
                 .OrderByDescending(item => item.LastHeardUtc != DateTime.MinValue)
                 .ThenByDescending(item => item.LastHeardUtc)
-                .ThenBy(item => item.SortNameKey, StringComparer.Ordinal)
-                .ThenBy(item => item.SortIdKey, StringComparer.Ordinal)
+                .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             _ => items
-                .OrderBy(item => item.SortNameKey, StringComparer.Ordinal)
-                .ThenBy(item => item.SortIdKey, StringComparer.Ordinal)
+                .OrderBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
+    }
+
+    private void ApplyChatSorting()
+    {
+        if (VisibleChatItems.Count <= 1)
+            return;
+
+        var indexed = VisibleChatItems.Select((item, index) => (item, index));
+        var sorted = _sortMode switch
+        {
+            SortMode.LastActive => indexed
+                .OrderByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .ThenByDescending(entry => entry.item.LastHeardUtc)
+                .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList(),
+            _ => indexed
+                .OrderBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList()
+        };
+
+        ApplySortedOrder(VisibleChatItems, sorted);
+    }
+
+    private void RefreshChatSorting()
+    {
+        if (_chatSortRefreshTimer.IsEnabled)
+            _chatSortRefreshTimer.Stop();
+        _chatSortRefreshTimer.Start();
+    }
+
+    private static void ApplySortedOrder<T>(ObservableCollection<T> collection, IList<T> desiredOrder)
+    {
+        for (var targetIndex = 0; targetIndex < desiredOrder.Count; targetIndex++)
+        {
+            var item = desiredOrder[targetIndex];
+            var currentIndex = collection.IndexOf(item);
+            if (currentIndex < 0 || currentIndex == targetIndex)
+                continue;
+
+            collection.Move(currentIndex, targetIndex);
+        }
     }
 
     private void ApplyChatSorting()
