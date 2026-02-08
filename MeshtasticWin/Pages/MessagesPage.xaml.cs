@@ -1,5 +1,6 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using MeshtasticWin.Models;
@@ -54,6 +55,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     private bool _suppressListEvent;
     private string _chatFilter = "";
     private SortMode _sortMode = SortMode.Alphabetical;
+    private ICollectionView ChatsView { get; }
 
     private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
@@ -81,7 +83,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         SortCombo.SelectedIndex = 0;
 
         HideInactiveToggle.IsChecked = _hideInactive;
-        ChatsView.Source = VisibleChatItems;
+        ChatsView = CollectionViewSource.GetDefaultView(VisibleChatItems);
         ApplyChatSorting();
 
         MeshtasticWin.AppState.Messages.CollectionChanged += Messages_CollectionChanged;
@@ -400,6 +402,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             _ => SortMode.Alphabetical
         };
 
+        ApplyChatSorting();
         RebuildVisibleChats();
         SyncListToActiveChat();
     }
@@ -454,6 +457,28 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
                 .ThenBy(item => item.SortIdKey, StringComparer.Ordinal)
                 .ToList()
         };
+    }
+
+    private void ApplyChatSorting()
+    {
+        ChatsView.SortDescriptions.Clear();
+        switch (_sortMode)
+        {
+            case SortMode.LastActive:
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                break;
+            default:
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                break;
+        }
+    }
+
+    private void RefreshChatSorting()
+    {
+        ChatsView.Refresh();
     }
 
     private MessageVm CreateMessageVm(MessageLive message)

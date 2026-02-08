@@ -28,7 +28,7 @@
 
             <ListView Grid.Row="6"
                       x:Name="ChatList"
-                      ItemsSource="{Binding Source={StaticResource ChatsView}}"
+                      ItemsSource="{x:Bind ChatsView, Mode=OneWay}"
                       SelectionMode="Single"
                       SelectionChanged="ChatList_SelectionChanged">
                 <ListView.ItemTemplate>

@@ -235,6 +235,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public ObservableCollection<NodeLive> NodesSource => MeshtasticWin.AppState.Nodes;
     public ObservableCollection<NodeLive> VisibleNodes { get; } = new();
     private readonly ObservableCollection<NodeLive> _allNodes = new();
+    private ICollectionView? _nodesView;
 
     private enum SortMode
     {
@@ -262,6 +263,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         HideInactiveToggle.IsChecked = _hideInactive;
         NodesView.Source = VisibleNodes;
+        _nodesView = CollectionViewSource.GetDefaultView(VisibleNodes);
         ApplyNodeSorting();
 
         MeshtasticWin.AppState.Nodes.CollectionChanged += Nodes_CollectionChanged;
@@ -781,8 +783,35 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _ => SortMode.Alphabetical
         };
 
+        ApplyNodeSorting();
         RebuildVisibleNodes();
         TriggerMapUpdate();
+    }
+
+    private void ApplyNodeSorting()
+    {
+        _nodesView ??= CollectionViewSource.GetDefaultView(VisibleNodes);
+        if (_nodesView is null)
+            return;
+
+        _nodesView.SortDescriptions.Clear();
+        switch (_sortMode)
+        {
+            case SortMode.LastActive:
+                _nodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.LastHeardUtc), ListSortDirection.Descending));
+                _nodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
+                _nodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
+                break;
+            default:
+                _nodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
+                _nodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
+                break;
+        }
+    }
+
+    private void RefreshNodeSorting()
+    {
+        _nodesView?.Refresh();
     }
 
     private List<NodeLive> SortNodes(List<NodeLive> nodes)
