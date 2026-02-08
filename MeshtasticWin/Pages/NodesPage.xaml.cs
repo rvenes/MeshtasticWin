@@ -890,7 +890,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         OnChanged(nameof(HasPositionSelection));
     }
 
-    private void PositionLogList_ItemClick(object sender, ItemClickEventArgs e)
+    private void PositionLogList_ItemClick(object _, ItemClickEventArgs e)
     {
         if (e.ClickedItem is not PositionLogEntry entry)
             return;
