@@ -714,6 +714,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         _filterApplyTimer.Stop();
 
+        EnsureConnectedNodeInNodes();
+
         var desired = new List<NodeLive>();
         foreach (var node in _allNodes)
         {
@@ -753,6 +755,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private bool ShouldShowNode(NodeLive node)
     {
+        if (!string.IsNullOrWhiteSpace(AppState.ConnectedNodeIdHex) &&
+            string.Equals(node.IdHex, AppState.ConnectedNodeIdHex, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (IsHiddenByInactive(node))
             return false;
 
@@ -926,7 +934,22 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private void ConnectedNodeChanged()
     {
+        RebuildVisibleNodes();
         ApplyNodeSorting();
+    }
+
+    private void EnsureConnectedNodeInNodes()
+    {
+        if (string.IsNullOrWhiteSpace(AppState.ConnectedNodeIdHex))
+            return;
+
+        var connected = AppState.Nodes.FirstOrDefault(n =>
+            string.Equals(n.IdHex, AppState.ConnectedNodeIdHex, StringComparison.OrdinalIgnoreCase));
+        if (connected is not null)
+            return;
+
+        var node = new NodeLive(AppState.ConnectedNodeIdHex);
+        AppState.Nodes.Insert(0, node);
     }
 
     private void NodesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2301,6 +2324,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             backLine = $"Path Back: {backPath}";
             if (!string.IsNullOrWhiteSpace(backMetrics))
                 backLine += " | " + backMetrics;
+        }
+        else if (isActive && !hasBack)
+        {
+            backLine = "Path Back: (not received)";
         }
         var forwardHops = effectiveForward
             ? string.Join(" -> ", (hasForward ? parsed.Route : parsed.RouteBack).Select(ResolveHopLabel))
