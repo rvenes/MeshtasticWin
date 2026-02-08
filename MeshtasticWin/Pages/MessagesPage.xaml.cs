@@ -271,6 +271,8 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
                 desired.Add(item);
         }
 
+        desired = SortChatItems(desired);
+
         for (var i = VisibleChatItems.Count - 1; i >= 0; i--)
         {
             if (!desired.Contains(VisibleChatItems[i]))
@@ -398,7 +400,8 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             _ => SortMode.Alphabetical
         };
 
-        ApplyChatSorting();
+        RebuildVisibleChats();
+        SyncListToActiveChat();
     }
 
     private void HideInactiveToggle_Click(object sender, RoutedEventArgs e)
@@ -436,29 +439,21 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         OnChanged(nameof(SelectedChatMessages));
     }
 
-    private void ApplyChatSorting()
+    private List<ChatListItemVm> SortChatItems(List<ChatListItemVm> items)
     {
-        if (ChatsView is null)
-            return;
-
-        ChatsView.SortDescriptions.Clear();
-        switch (_sortMode)
+        return _sortMode switch
         {
-            case SortMode.LastActive:
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
-                break;
-            default:
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
-                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
-                break;
-        }
-    }
-
-    private void RefreshChatSorting()
-    {
-        ApplyChatSorting();
+            SortMode.LastActive => items
+                .OrderByDescending(item => item.LastHeardUtc != DateTime.MinValue)
+                .ThenByDescending(item => item.LastHeardUtc)
+                .ThenBy(item => item.SortNameKey, StringComparer.Ordinal)
+                .ThenBy(item => item.SortIdKey, StringComparer.Ordinal)
+                .ToList(),
+            _ => items
+                .OrderBy(item => item.SortNameKey, StringComparer.Ordinal)
+                .ThenBy(item => item.SortIdKey, StringComparer.Ordinal)
+                .ToList()
+        };
     }
 
     private MessageVm CreateMessageVm(MessageLive message)

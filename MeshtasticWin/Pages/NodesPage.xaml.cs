@@ -696,6 +696,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 desired.Add(node);
         }
 
+        desired = SortNodes(desired);
+
         for (var i = VisibleNodes.Count - 1; i >= 0; i--)
         {
             if (!desired.Contains(VisibleNodes[i]))
@@ -779,32 +781,25 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _ => SortMode.Alphabetical
         };
 
-        ApplyNodeSorting();
+        RebuildVisibleNodes();
+        TriggerMapUpdate();
     }
 
-    private void ApplyNodeSorting()
+    private List<NodeLive> SortNodes(List<NodeLive> nodes)
     {
-        if (NodesView is null)
-            return;
-
-        NodesView.SortDescriptions.Clear();
-        switch (_sortMode)
+        return _sortMode switch
         {
-            case SortMode.LastActive:
-                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.LastHeardUtc), ListSortDirection.Descending));
-                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
-                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
-                break;
-            default:
-                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
-                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
-                break;
-        }
-    }
-
-    private void RefreshNodeSorting()
-    {
-        ApplyNodeSorting();
+            SortMode.LastActive => nodes
+                .OrderByDescending(n => n.LastHeardUtc != DateTime.MinValue)
+                .ThenByDescending(n => n.LastHeardUtc)
+                .ThenBy(n => n.SortNameKey, StringComparer.Ordinal)
+                .ThenBy(n => n.SortIdKey, StringComparer.Ordinal)
+                .ToList(),
+            _ => nodes
+                .OrderBy(n => n.SortNameKey, StringComparer.Ordinal)
+                .ThenBy(n => n.SortIdKey, StringComparer.Ordinal)
+                .ToList()
+        };
     }
 
     private void HideInactiveToggle_Click(object sender, RoutedEventArgs e)
