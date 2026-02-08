@@ -1904,6 +1904,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         try
         {
             var packetId = await RadioClient.Instance.SendTraceRouteRequestAsync((uint)Selected.NodeNum);
+            TraceRouteContext.RegisterActiveTraceRoute((uint)Selected.NodeNum);
             RadioClient.Instance.AddLogFromUiThread($"Trace Route sent to {Selected.Name} (packetId=0x{packetId:x8}).");
             StartTraceRouteCooldown();
         }
@@ -2118,9 +2119,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var tsText = timestamp?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? tsPart;
 
         var parsed = ParseTraceRouteSummary(summary);
+        var isActive = parsed.IsActive;
+        var isPassive = !isActive;
         var hasForward = parsed.Route.Count > 0;
         var hasBack = parsed.RouteBack.Count > 0;
-        var showBack = hasBack && (!parsed.IsPassive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase));
+        var showBack = hasBack && (isActive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase));
 
         var hopPath = hasForward ? parsed.Route : parsed.RouteBack;
         var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveHopLabel).ToList() : new List<string>();
@@ -2135,7 +2138,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var fromText = ResolveNodeIdentityDetailed(fromNode);
         var toText = ResolveNodeIdentityDetailed(toNode);
 
-        var tag = parsed.IsPassive ? "[PASSIVE]" : "[ACTIVE]";
+        var tag = isActive ? "[ACTIVE]" : "[PASSIVE]";
         var header = new StringBuilder();
         header.Append(tag).Append(' ').Append(tsText).Append(" | ");
         header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
@@ -2190,7 +2193,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             overlayRoute,
             overlayBack,
             overlayMetrics,
-            parsed.IsPassive,
+            isPassive,
             hopPath.Count,
             routePoints,
             canViewRoute);
@@ -2347,6 +2350,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         uint? channel = null;
         string? variant = null;
         bool isPassive = false;
+        bool isActive = false;
 
         var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var currentLabel = "";
@@ -2408,10 +2412,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                         isPassive = true;
                     }
                     break;
+                case "active:":
+                    if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase) ||
+                        token == "1")
+                    {
+                        isActive = true;
+                    }
+                    break;
             }
         }
 
-        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi, fromNode, toNode, channel, variant, isPassive);
+        return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi, fromNode, toNode, channel, variant, isPassive, isActive);
     }
 
     private static string FormatSnrValue(int value)
@@ -2681,7 +2693,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         uint? ToNode,
         uint? Channel,
         string? Variant,
-        bool IsPassive);
+        bool IsPassive,
+        bool IsActive);
 
     private enum LogKind
     {
