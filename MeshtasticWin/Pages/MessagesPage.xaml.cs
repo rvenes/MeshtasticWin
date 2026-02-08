@@ -240,7 +240,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             || (node.ShortId?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
-    private void ChatsView_Filter(object sender, FilterEventArgs e)
+    private void ChatsView_Filter(object sender, Microsoft.UI.Xaml.Data.FilterEventArgs e)
     {
         if (e.Item is not ChatListItemVm item)
         {

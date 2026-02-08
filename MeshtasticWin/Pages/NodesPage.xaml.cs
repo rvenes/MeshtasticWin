@@ -971,7 +971,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
-    private void RefreshPositionEntries(List<PositionLogEntry>? entries = null)
+    private void RefreshPositionEntries(IReadOnlyList<PositionLogEntry>? entries = null)
     {
         var viewer = FindScrollViewer(PositionLogList);
         var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
@@ -1011,7 +1011,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         await Launcher.LaunchUriAsync(uri);
     }
 
-    private async void DeletePositionLogOlder_Click(object sender, RoutedEventArgs e)
+    private async void DeletePositionLogOlder_Click(object _, RoutedEventArgs _1)
         => await DeletePositionLogOlderAsync();
 
     private async void ExportPositionLog_Click(object _, RoutedEventArgs _1)
@@ -1402,10 +1402,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return string.Join(Environment.NewLine, lines);
     }
 
-    private List<PositionLogEntry> ReadPositionEntries()
+    private IReadOnlyList<PositionLogEntry> ReadPositionEntries()
     {
         if (Selected is null)
-            return new List<PositionLogEntry>();
+            return Array.Empty<PositionLogEntry>();
 
         return GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000)
             .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
