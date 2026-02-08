@@ -977,6 +977,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _enabledTrackNodeIds.Clear();
         _lastTrackPointByNode.Clear();
         SendTrackClearAll();
+        SendRouteClear();
         OnChanged(nameof(GpsTrackButtonText));
     }
 
@@ -1567,7 +1568,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return;
 
         DetailsTabs.SelectedIndex = 0;
-        SendRouteSet(SelectedTraceRouteEntry.RoutePoints);
+        SendRouteSet(
+            SelectedTraceRouteEntry.ForwardPoints,
+            SelectedTraceRouteEntry.ForwardQualities,
+            SelectedTraceRouteEntry.BackPoints,
+            SelectedTraceRouteEntry.BackQualities);
     }
 
     private void RefreshTraceRouteEntries()
@@ -2014,10 +2019,25 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         MapView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"trackClearAll\"}");
     }
 
-    private void SendRouteSet(IReadOnlyList<RouteMapPoint> points)
+    private void SendRouteClear()
     {
         if (!_mapReady || MapView.CoreWebView2 is null) return;
-        var payload = new { type = "routeSet", points };
+        MapView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"routeClear\"}");
+    }
+
+    private void SendRouteSet(
+        IReadOnlyList<RouteMapPoint> forwardPoints,
+        IReadOnlyList<double?> forwardQualities,
+        IReadOnlyList<RouteMapPoint> backPoints,
+        IReadOnlyList<double?> backQualities)
+    {
+        if (!_mapReady || MapView.CoreWebView2 is null) return;
+        var payload = new
+        {
+            type = "routeSet",
+            forward = new { points = forwardPoints, qualities = forwardQualities },
+            back = new { points = backPoints, qualities = backQualities }
+        };
         MapView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, s_jsonOptions));
     }
 
@@ -2141,7 +2161,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var tag = isActive ? "[ACTIVE]" : "[PASSIVE]";
         var header = new StringBuilder();
         header.Append(tag).Append(' ').Append(tsText).Append(" | ");
-        header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
+        if (hasForward || !isActive)
+            header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
+        else
+            header.Append("Route: ").Append(fromText).Append(" -> ").Append(toText);
         header.Append(" | Hops: ").Append(hopPath.Count);
         if (parsed.Channel.HasValue)
             header.Append(" | Ch ").Append(parsed.Channel.Value);
@@ -2150,6 +2173,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var pathText = hopNames.Count > 0 ? string.Join(" -> ", hopNames) : "No hops recorded";
         var primaryMetrics = BuildPrimaryMetrics(parsed, hasForward);
         var pathLine = $"{pathLabel}: {pathText}";
+        if (isActive && !hasForward)
+            pathLine = "Route: (no forward route recorded)";
         if (!string.IsNullOrWhiteSpace(primaryMetrics))
             pathLine += " | " + primaryMetrics;
 
@@ -2176,11 +2201,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             : null;
         var overlayMetrics = BuildOverlayMetrics(parsed, hasForward, showBack);
 
-        var routePoints = BuildRouteMapPoints(parsed.Route, parsed.FromNode, parsed.ToNode);
-        if (routePoints.Count < 2 && parsed.RouteBack.Count > 0)
-            routePoints = BuildRouteMapPoints(parsed.RouteBack, parsed.ToNode, parsed.FromNode);
-
-        var canViewRoute = routePoints.Count >= 2;
+        var (forwardPoints, forwardQualities) = BuildRouteMapPoints(parsed.Route, parsed.FromNode, parsed.ToNode, parsed.SnrTowards);
+        var (backPoints, backQualities) = BuildRouteMapPoints(parsed.RouteBack, parsed.ToNode, parsed.FromNode, parsed.SnrBack);
+        var canViewRoute = forwardPoints.Count >= 2 || backPoints.Count >= 2;
 
         return new TraceRouteLogEntry(
             rawLine,
@@ -2195,7 +2218,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             overlayMetrics,
             isPassive,
             hopPath.Count,
-            routePoints,
+            forwardPoints,
+            backPoints,
+            forwardQualities,
+            backQualities,
             canViewRoute);
     }
 
@@ -2253,7 +2279,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return metrics.Count > 0 ? "Metrics: " + string.Join(" | ", metrics) : null;
     }
 
-    private static IReadOnlyList<RouteMapPoint> BuildRouteMapPoints(IReadOnlyList<uint> hops, uint? fromNode, uint? toNode)
+    private static (IReadOnlyList<RouteMapPoint> Points, IReadOnlyList<double?> Qualities) BuildRouteMapPoints(
+        IReadOnlyList<uint> hops,
+        uint? fromNode,
+        uint? toNode,
+        IReadOnlyList<int> snrValues)
     {
         var route = new List<uint>();
         if (hops.Count > 0)
@@ -2273,7 +2303,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
 
         if (route.Count == 0)
-            return Array.Empty<RouteMapPoint>();
+            return (Array.Empty<RouteMapPoint>(), Array.Empty<double?>());
 
         var points = new List<RouteMapPoint>();
         foreach (var nodeNum in route)
@@ -2285,7 +2315,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             points.Add(new RouteMapPoint(node.Latitude, node.Longitude, ResolveHopLabel(nodeNum)));
         }
 
-        return points;
+        var segmentCount = Math.Max(0, points.Count - 1);
+        var qualities = new List<double?>(segmentCount);
+        for (var i = 0; i < segmentCount; i++)
+        {
+            qualities.Add(i < snrValues.Count ? snrValues[i] : null);
+        }
+
+        return (points, qualities);
     }
 
     private static string ResolveHopLabel(uint nodeNum)

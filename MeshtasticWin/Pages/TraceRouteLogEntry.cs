@@ -22,7 +22,10 @@ public sealed class TraceRouteLogEntry : INotifyPropertyChanged
         string? overlayMetricsText,
         bool isPassive,
         int hopCount,
-        IReadOnlyList<RouteMapPoint> routePoints,
+        IReadOnlyList<RouteMapPoint> forwardPoints,
+        IReadOnlyList<RouteMapPoint> backPoints,
+        IReadOnlyList<double?> forwardQualities,
+        IReadOnlyList<double?> backQualities,
         bool canViewRoute)
     {
         RawLine = rawLine;
@@ -37,7 +40,10 @@ public sealed class TraceRouteLogEntry : INotifyPropertyChanged
         OverlayMetricsText = overlayMetricsText;
         IsPassive = isPassive;
         HopCount = hopCount;
-        RoutePoints = routePoints;
+        ForwardPoints = forwardPoints;
+        BackPoints = backPoints;
+        ForwardQualities = forwardQualities;
+        BackQualities = backQualities;
         CanViewRoute = canViewRoute;
         RouteBackVisibility = string.IsNullOrWhiteSpace(routeBackHeaderText) && string.IsNullOrWhiteSpace(routeBackPathText)
             ? Visibility.Collapsed
@@ -49,7 +55,10 @@ public sealed class TraceRouteLogEntry : INotifyPropertyChanged
     public DateTime TimestampUtc { get; }
     public bool IsPassive { get; private set; }
     public int HopCount { get; private set; }
-    public IReadOnlyList<RouteMapPoint> RoutePoints { get; private set; }
+    public IReadOnlyList<RouteMapPoint> ForwardPoints { get; private set; }
+    public IReadOnlyList<RouteMapPoint> BackPoints { get; private set; }
+    public IReadOnlyList<double?> ForwardQualities { get; private set; }
+    public IReadOnlyList<double?> BackQualities { get; private set; }
     public bool CanViewRoute { get; private set; }
 
     public string HeaderText { get; private set; }
@@ -76,7 +85,10 @@ public sealed class TraceRouteLogEntry : INotifyPropertyChanged
         OverlayMetricsText = other.OverlayMetricsText;
         IsPassive = other.IsPassive;
         HopCount = other.HopCount;
-        RoutePoints = other.RoutePoints;
+        ForwardPoints = other.ForwardPoints;
+        BackPoints = other.BackPoints;
+        ForwardQualities = other.ForwardQualities;
+        BackQualities = other.BackQualities;
         CanViewRoute = other.CanViewRoute;
         RouteBackVisibility = string.IsNullOrWhiteSpace(RouteBackHeaderText) && string.IsNullOrWhiteSpace(RouteBackPathText)
             ? Visibility.Collapsed
@@ -95,7 +107,10 @@ public sealed class TraceRouteLogEntry : INotifyPropertyChanged
         OnChanged(nameof(MetricsVisibility));
         OnChanged(nameof(IsPassive));
         OnChanged(nameof(HopCount));
-        OnChanged(nameof(RoutePoints));
+        OnChanged(nameof(ForwardPoints));
+        OnChanged(nameof(BackPoints));
+        OnChanged(nameof(ForwardQualities));
+        OnChanged(nameof(BackQualities));
         OnChanged(nameof(CanViewRoute));
     }
 

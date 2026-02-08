@@ -620,6 +620,9 @@ public static class FromRadioRouter
         else
         {
             sb.Append("passive: true ");
+            sb.Append("from: ").Append(fromNodeNum).Append(' ');
+            if (toNodeNum != 0xFFFFFFFF)
+                sb.Append("to: ").Append(toNodeNum).Append(' ');
         }
 
         sb.Append(formatted);
