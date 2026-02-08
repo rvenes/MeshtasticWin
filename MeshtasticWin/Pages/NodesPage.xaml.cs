@@ -639,7 +639,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private bool IsTooOld(NodeLive n)
     {
         if (_hideOlderThanDays >= 99999) return false;
-        if (n.LastHeardUtc == DateTime.MinValue) return true;
+        if (n.LastHeardUtc == DateTime.MinValue) return false;
         return (DateTime.UtcNow - n.LastHeardUtc) > TimeSpan.FromDays(_hideOlderThanDays);
     }
 

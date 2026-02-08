@@ -327,6 +327,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     private bool IsTooOld(NodeLive n)
     {
         if (_hideOlderThanDays >= 99999) return false;
+        if (n.LastHeardUtc == DateTime.MinValue) return false;
         var age = DateTime.UtcNow - n.LastHeardUtc;
         return age.TotalDays > _hideOlderThanDays;
     }
@@ -348,36 +349,24 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private void ApplyMessageVisibilityToAll()
     {
-        var peer = MeshtasticWin.AppState.ActiveChatPeerIdHex;
-        for (var i = 0; i < ViewMessages.Count && i < MeshtasticWin.AppState.Messages.Count; i++)
-        {
-            var live = MeshtasticWin.AppState.Messages[i];
-            var vm = ViewMessages[i];
-            vm.IsVisible = ShouldShowMessage(live, peer);
-        }
+        var peerKey = NormalizePeerKey(MeshtasticWin.AppState.ActiveChatPeerIdHex);
+        foreach (var vm in ViewMessages)
+            vm.IsVisible = string.Equals(vm.PeerKey, peerKey, StringComparison.OrdinalIgnoreCase);
     }
 
     private MessageVm CreateMessageVm(MessageLive message)
     {
         var vm = MessageVm.From(message);
-        vm.IsVisible = ShouldShowMessage(message, MeshtasticWin.AppState.ActiveChatPeerIdHex);
+        vm.PeerKey = GetPeerKey(message);
+        vm.IsVisible = string.Equals(vm.PeerKey, NormalizePeerKey(MeshtasticWin.AppState.ActiveChatPeerIdHex), StringComparison.OrdinalIgnoreCase);
         return vm;
-    }
-
-    private static bool ShouldShowMessage(MessageLive message, string? peer)
-    {
-        if (string.IsNullOrWhiteSpace(peer))
-            return !message.IsDirect;
-
-        return message.IsDirect &&
-               (string.Equals(message.FromIdHex, peer, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(message.ToIdHex, peer, StringComparison.OrdinalIgnoreCase));
     }
 
     private void UpdateMessageVm(MessageVm vm, MessageLive message)
     {
         vm.UpdateFrom(message);
-        vm.IsVisible = ShouldShowMessage(message, MeshtasticWin.AppState.ActiveChatPeerIdHex);
+        vm.PeerKey = GetPeerKey(message);
+        vm.IsVisible = string.Equals(vm.PeerKey, NormalizePeerKey(MeshtasticWin.AppState.ActiveChatPeerIdHex), StringComparison.OrdinalIgnoreCase);
     }
 
     private void RemoveMessageVm(MessageLive message)
@@ -401,6 +390,19 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             else
                 UpdateMessageVm(ViewMessages[i], message);
         }
+    }
+
+    private static string NormalizePeerKey(string? peerIdHex)
+        => string.IsNullOrWhiteSpace(peerIdHex) ? "" : peerIdHex.Trim();
+
+    private static string GetPeerKey(MessageLive message)
+    {
+        if (!message.IsDirect)
+            return "";
+
+        return message.IsMine
+            ? NormalizePeerKey(message.ToIdHex)
+            : NormalizePeerKey(message.FromIdHex);
     }
 
     private async void Send_Click(object sender, RoutedEventArgs e)
@@ -678,6 +680,13 @@ public sealed class ChatListItemVm : INotifyPropertyChanged
 public sealed class MessageVm : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    private string _peerKey = "";
+    public string PeerKey
+    {
+        get => _peerKey;
+        set { if (_peerKey != value) { _peerKey = value; OnChanged(nameof(PeerKey)); } }
+    }
 
     private string _header = "";
     public string Header
