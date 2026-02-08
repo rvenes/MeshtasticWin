@@ -884,7 +884,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
-    private void PositionLogList_SelectionChanged(object sender, SelectionChangedEventArgs _)
+    private void PositionLogList_SelectionChanged(object _, SelectionChangedEventArgs _1)
     {
         _selectedPositionEntry = PositionLogList.SelectedItem as PositionLogEntry;
         OnChanged(nameof(HasPositionSelection));

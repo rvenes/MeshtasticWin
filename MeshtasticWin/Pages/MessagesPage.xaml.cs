@@ -508,26 +508,6 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             string.Equals(vm.When, message.When ?? "", StringComparison.Ordinal));
     }
 
-    private static string NormalizePeerKey(string? peerIdHex)
-        => string.IsNullOrWhiteSpace(peerIdHex) ? "" : peerIdHex.Trim();
-
-    private static string GetChatKey(string? peerIdHex)
-    {
-        var normalized = NormalizePeerKey(peerIdHex);
-        return string.IsNullOrWhiteSpace(normalized)
-            ? "channel:primary"
-            : $"dm:{normalized}";
-    }
-
-    private static string GetChatKey(MessageLive message)
-    {
-        if (!message.IsDirect)
-            return "channel:primary";
-
-        var peerIdHex = message.IsMine ? message.ToIdHex : message.FromIdHex;
-        return $"dm:{NormalizePeerKey(peerIdHex)}";
-    }
-
     private async void Send_Click(object sender, RoutedEventArgs e)
         => await SendNowAsync();
 
