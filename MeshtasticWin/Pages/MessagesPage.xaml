@@ -4,6 +4,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:MeshtasticWin.Pages">
 
+    <Page.Resources>
+        <CollectionViewSource x:Name="ChatsView" x:Key="ChatsView"/>
+    </Page.Resources>
+
 	    <Grid Padding="12">
 	        <Grid.ColumnDefinitions>
 	            <ColumnDefinition Width="360"/>
@@ -25,14 +29,14 @@
 	                     PlaceholderText="Search (name / id)"
 	                     TextChanged="ChatSearchBox_TextChanged"/>
 
-	            <ListView Grid.Row="6"
-	                      x:Name="ChatList"
-	                      ItemsSource="{x:Bind ChatListItems, Mode=OneWay}"
-	                      SelectionMode="Single"
-	                      SelectionChanged="ChatList_SelectionChanged">
-	                <ListView.ItemTemplate>
-	                    <DataTemplate x:DataType="local:ChatListItemVm">
-	                        <Grid Padding="6" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+            <ListView Grid.Row="6"
+                      x:Name="ChatList"
+                      ItemsSource="{Binding Source={StaticResource ChatsView}}"
+                      SelectionMode="Single"
+                      SelectionChanged="ChatList_SelectionChanged">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:ChatListItemVm">
+                        <Grid Padding="6" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
 	                            <Ellipse Width="8" Height="8" Margin="0,0,8,0"
                                      Fill="LimeGreen"
                                      VerticalAlignment="Center"
@@ -63,9 +67,10 @@
 	            <ListView Grid.Row="2"
 	                      x:Name="MessagesList"
 	                      ItemsSource="{x:Bind ViewMessages, Mode=OneWay}">
-	                <ListView.ItemTemplate>
-	                    <DataTemplate x:DataType="local:MessageVm">
-	                        <StackPanel Spacing="4" Padding="10">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:MessageVm">
+                        <StackPanel Spacing="4" Padding="10"
+                                    Visibility="{x:Bind RowVisibility}">
 	                            <StackPanel Orientation="Horizontal" Spacing="12">
 	                                <TextBlock Text="{x:Bind Header}" FontWeight="SemiBold"/>
 	                                <TextBlock Text="{x:Bind When}" Opacity="0.7"/>

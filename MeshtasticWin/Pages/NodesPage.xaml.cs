@@ -35,12 +35,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public ObservableCollection<NodeLive> FilteredNodesView { get; } = new();
-
     private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
     private string _filter = "";
     private readonly DispatcherTimer _throttle = new();
+    private readonly DispatcherTimer _filterApplyTimer = new();
     private bool _mapReady;
     private readonly DispatcherTimer _traceRouteTimer = new();
     private int _traceRouteRemainingSeconds;
@@ -229,6 +228,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
+    public ObservableCollection<NodeLive> NodesSource => MeshtasticWin.AppState.Nodes;
+
     public NodesPage()
     {
         InitializeComponent();
@@ -250,7 +251,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         foreach (var n in MeshtasticWin.AppState.Nodes)
             n.PropertyChanged += Node_PropertyChanged;
 
-        RebuildFiltered();
+        ApplyFiltersToAllNodes();
+
+        _filterApplyTimer.Interval = TimeSpan.FromMilliseconds(250);
+        _filterApplyTimer.Tick += (_, __) =>
+        {
+            _filterApplyTimer.Stop();
+            ApplyFiltersToAllNodes();
+        };
 
         _throttle.Interval = TimeSpan.FromMilliseconds(350);
         _throttle.Tick += (_, __) => { _throttle.Stop(); _ = PushAllNodesToMapAsync(); };
@@ -272,6 +280,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             n.PropertyChanged -= Node_PropertyChanged;
 
         DeviceMetricsLogService.SampleAdded -= DeviceMetricsLogService_SampleAdded;
+        _filterApplyTimer.Stop();
         _logPollTimer.Stop();
     }
 
@@ -574,12 +583,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             {
                 n.PropertyChanged += Node_PropertyChanged;
                 SeedLogWriteTimesForNode(n);
+                UpdateNodeVisibility(n);
             }
 
         if (e.OldItems is not null)
             foreach (NodeLive n in e.OldItems) n.PropertyChanged -= Node_PropertyChanged;
 
-        RebuildFiltered();
+        ScheduleFilterApply();
         OnChanged(nameof(NodeCountsText));
         TriggerMapUpdate();
     }
@@ -598,10 +608,15 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         if (e.PropertyName is nameof(NodeLive.LastHeardUtc) or nameof(NodeLive.LastHeard)
             or nameof(NodeLive.Latitude) or nameof(NodeLive.Longitude)
-            or nameof(NodeLive.RSSI) or nameof(NodeLive.SNR))
+            or nameof(NodeLive.RSSI) or nameof(NodeLive.SNR)
+            or nameof(NodeLive.Name) or nameof(NodeLive.ShortName))
         {
             OnChanged(nameof(NodeCountsText));
-            RebuildFiltered();
+            if (sender is NodeLive node)
+            {
+                UpdateNodeVisibility(node);
+                EnsureSelectionVisible();
+            }
             TriggerMapUpdate();
         }
 
@@ -624,7 +639,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private bool IsTooOld(NodeLive n)
     {
         if (_hideOlderThanDays >= 99999) return false;
-        if (n.LastHeardUtc == DateTime.MinValue) return true;
+        if (n.LastHeardUtc == DateTime.MinValue) return false;
         return (DateTime.UtcNow - n.LastHeardUtc) > TimeSpan.FromDays(_hideOlderThanDays);
     }
 
@@ -641,47 +656,56 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _throttle.Start();
     }
 
-    private void RebuildFiltered()
+    private void ScheduleFilterApply()
     {
-        FilteredNodesView.Clear();
+        if (_filterApplyTimer.IsEnabled)
+            _filterApplyTimer.Stop();
+        _filterApplyTimer.Start();
+    }
 
+    private void ApplyFiltersToAllNodes()
+    {
+        _filterApplyTimer.Stop();
+        foreach (var node in MeshtasticWin.AppState.Nodes)
+            UpdateNodeVisibility(node);
+
+        EnsureSelectionVisible();
+        OnChanged(nameof(NodeCountsText));
+    }
+
+    private void UpdateNodeVisibility(NodeLive node)
+    {
         var q = (_filter ?? "").Trim();
+        var visible = !IsTooOld(node) && !IsHiddenByInactive(node);
 
-        var nodes = MeshtasticWin.AppState.Nodes
-            .Where(n => !IsTooOld(n))
-            .Where(n => !IsHiddenByInactive(n))
-            .Where(n =>
-            {
-                if (string.IsNullOrWhiteSpace(q)) return true;
-                return (n.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (n.IdHex?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (n.ShortId?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
-            })
-            .OrderByDescending(n => IsOnlineByRssi(n))
-            .ThenByDescending(n => n.LastHeardUtc)
-            .ThenBy(n => n.Name)
-            .ToList();
-
-        foreach (var n in nodes)
-            FilteredNodesView.Add(n);
-
-        if (Selected is null && FilteredNodesView.Count > 0)
+        if (visible && !string.IsNullOrWhiteSpace(q))
         {
-            NodesList.SelectedItem = FilteredNodesView[0];
-            Selected = FilteredNodesView[0];
+            visible = (node.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (node.IdHex?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (node.ShortId?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
         }
 
-        OnChanged(nameof(NodeCountsText));
+        node.IsVisible = visible;
+    }
+
+    private void EnsureSelectionVisible()
+    {
+        if (Selected is not null && Selected.IsVisible)
+            return;
+
+        var firstVisible = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => n.IsVisible);
+        NodesList.SelectedItem = firstVisible;
+        Selected = firstVisible;
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         _filter = SearchBox.Text ?? "";
-        RebuildFiltered();
+        ScheduleFilterApply();
         TriggerMapUpdate();
     }
 
-    private void AgeFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void AgeFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs _)
     {
         _hideOlderThanDays = AgeFilterCombo.SelectedIndex switch
         {
@@ -695,14 +719,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _ => 99999
         };
 
-        RebuildFiltered();
+        ScheduleFilterApply();
         TriggerMapUpdate();
     }
 
     private void HideInactiveToggle_Click(object sender, RoutedEventArgs e)
     {
         _hideInactive = HideInactiveToggle.IsChecked == true;
-        RebuildFiltered();
+        ScheduleFilterApply();
         TriggerMapUpdate();
     }
 

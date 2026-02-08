@@ -129,6 +129,21 @@ public sealed class NodeLive : INotifyPropertyChanged
 
     public Visibility LogIndicatorVisible => HasLogIndicator ? Visibility.Visible : Visibility.Collapsed;
 
+    private bool _isVisible = true;
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set
+        {
+            if (_isVisible == value) return;
+            _isVisible = value;
+            OnChanged(nameof(IsVisible));
+            OnChanged(nameof(NodeVisibility));
+        }
+    }
+
+    public Visibility NodeVisibility => IsVisible ? Visibility.Visible : Visibility.Collapsed;
+
     // Prefer name from NodeInfo when available, otherwise fall back to ShortId/IdHex.
     public string Name
     {
