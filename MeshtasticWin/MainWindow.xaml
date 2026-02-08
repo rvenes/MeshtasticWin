@@ -11,14 +11,14 @@
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="False"
                         SelectionChanged="Nav_SelectionChanged">
-            <NavigationView.Header>
-                <Grid HorizontalAlignment="Stretch">
-                    <TextBlock x:Name="ConnectionStatusText"
-                               Text="Connected to:"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
-                </Grid>
-            </NavigationView.Header>
+            <NavigationView.PaneFooter>
+                <TextBlock x:Name="ConnectionStatusText"
+                           Text="Connected to:"
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="NoWrap"
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0"/>
+            </NavigationView.PaneFooter>
 
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Messages" Tag="messages" />

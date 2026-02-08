@@ -722,6 +722,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
 
         desired = SortNodes(desired);
+        desired = PinConnectedNodeToTop(desired);
 
         for (var i = VisibleNodes.Count - 1; i >= 0; i--)
         {
@@ -851,6 +852,22 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var index = VisibleNodes.IndexOf(connected);
         if (index > 0)
             VisibleNodes.Move(index, 0);
+    }
+
+    private List<NodeLive> PinConnectedNodeToTop(List<NodeLive> nodes)
+    {
+        if (string.IsNullOrWhiteSpace(AppState.ConnectedNodeIdHex))
+            return nodes;
+
+        var index = nodes.FindIndex(n =>
+            string.Equals(n.IdHex, AppState.ConnectedNodeIdHex, StringComparison.OrdinalIgnoreCase));
+        if (index <= 0)
+            return nodes;
+
+        var connected = nodes[index];
+        nodes.RemoveAt(index);
+        nodes.Insert(0, connected);
+        return nodes;
     }
 
     private void RefreshNodeSorting()
@@ -2229,9 +2246,17 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         var hasForward = parsed.Route.Count > 0;
         var hasBack = parsed.RouteBack.Count > 0;
-        var showBack = hasBack && (isActive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase));
+        var treatBackAsForward = !hasForward && hasBack &&
+                                 !string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase);
+        var effectiveForward = hasForward
+            || treatBackAsForward
+            || (isActive && !hasForward && !hasBack && parsed.FromNode.HasValue && parsed.ToNode.HasValue);
+        var showBack = hasBack && (isActive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase))
+            && !(treatBackAsForward && !hasForward);
 
-        var hopPath = hasForward ? parsed.Route : parsed.RouteBack;
+        var hopPath = effectiveForward
+            ? (hasForward ? parsed.Route : parsed.RouteBack)
+            : parsed.RouteBack;
         var hopNames = hopPath.Count > 0 ? hopPath.Select(ResolveHopLabel).ToList() : new List<string>();
 
         var fromNode = parsed.FromNode
@@ -2247,23 +2272,21 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var tag = isActive ? "[ACTIVE]" : "[PASSIVE]";
         var header = new StringBuilder();
         header.Append(tag).Append(' ').Append(tsText).Append(" | ");
-        if (hasForward || !isActive)
-            header.Append(hasForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
+        if (effectiveForward || !isActive)
+            header.Append(effectiveForward ? "Route: " : "Route Back: ").Append(fromText).Append(" -> ").Append(toText);
         else
             header.Append("Route: ").Append(fromText).Append(" -> ").Append(toText);
         header.Append(" | Hops: ").Append(hopPath.Count);
         if (parsed.Channel.HasValue)
             header.Append(" | Ch ").Append(parsed.Channel.Value);
 
-        var pathLabel = hasForward ? "Path" : "Path Back";
+        var pathLabel = effectiveForward ? "Path" : "Path Back";
         var pathText = hopNames.Count > 0 ? string.Join(" -> ", hopNames) : "No hops recorded";
-        var primaryMetrics = BuildPrimaryMetrics(parsed, hasForward);
+        var primaryMetrics = BuildPrimaryMetrics(parsed, effectiveForward);
         var pathLine = $"{pathLabel}: {pathText}";
-        if (isActive && !hasForward && !hasBack)
+        if (isActive && !effectiveForward && !hasBack && (!parsed.FromNode.HasValue || !parsed.ToNode.HasValue))
             pathLine = "Route: (no forward route recorded)";
-        if (isActive && !hasForward && hasBack)
-            pathLine = "Route: (no forward route recorded)";
-        if (!string.IsNullOrWhiteSpace(primaryMetrics) && !(isActive && !hasForward))
+        if (!string.IsNullOrWhiteSpace(primaryMetrics) && effectiveForward)
             pathLine += " | " + primaryMetrics;
 
         string? backHeader = null;
@@ -2279,17 +2302,19 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             if (!string.IsNullOrWhiteSpace(backMetrics))
                 backLine += " | " + backMetrics;
         }
-        var forwardHops = parsed.Route.Count > 0
-            ? string.Join(" -> ", parsed.Route.Select(ResolveHopLabel))
+        var forwardHops = effectiveForward
+            ? string.Join(" -> ", (hasForward ? parsed.Route : parsed.RouteBack).Select(ResolveHopLabel))
             : "No forward route recorded";
         var overlayHeader = $"{tag} {tsText} | {fromText} -> {toText} | Hops: {hopPath.Count}";
         var overlayRoute = $"Route: {forwardHops}";
         var overlayBack = showBack && parsed.RouteBack.Count > 0
             ? $"Route Back: {string.Join(" -> ", parsed.RouteBack.Select(ResolveHopLabel))}"
             : null;
-        var overlayMetrics = BuildOverlayMetrics(parsed, hasForward, showBack);
+        var overlayMetrics = BuildOverlayMetrics(parsed, effectiveForward, showBack);
 
-        var (forwardPoints, forwardQualities) = BuildRouteMapPoints(parsed.Route, parsed.FromNode, parsed.ToNode, parsed.SnrTowards);
+        var forwardRouteForMap = hasForward ? parsed.Route : (treatBackAsForward ? parsed.RouteBack : parsed.Route);
+        var forwardSnrForMap = hasForward ? parsed.SnrTowards : (treatBackAsForward ? parsed.SnrBack : parsed.SnrTowards);
+        var (forwardPoints, forwardQualities) = BuildRouteMapPoints(forwardRouteForMap, parsed.FromNode, parsed.ToNode, forwardSnrForMap);
         var (backPoints, backQualities) = BuildRouteMapPoints(parsed.RouteBack, parsed.ToNode, parsed.FromNode, parsed.SnrBack);
         var canViewRoute = forwardPoints.Count >= 2 || backPoints.Count >= 2;
 
