@@ -260,13 +260,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             ApplyFiltersToAllNodes();
         };
 
-        _filterRebuildTimer.Interval = TimeSpan.FromMilliseconds(300);
-        _filterRebuildTimer.Tick += (_, __) =>
-        {
-            _filterRebuildTimer.Stop();
-            RebuildFilteredCore();
-        };
-
         _throttle.Interval = TimeSpan.FromMilliseconds(350);
         _throttle.Tick += (_, __) => { _throttle.Stop(); _ = PushAllNodesToMapAsync(); };
 
@@ -712,7 +705,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         TriggerMapUpdate();
     }
 
-    private void AgeFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void AgeFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs _)
     {
         _hideOlderThanDays = AgeFilterCombo.SelectedIndex switch
         {

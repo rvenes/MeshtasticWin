@@ -129,8 +129,8 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
                     if (startIndex + i >= ViewMessages.Count)
                         break;
 
-                    var message = (MessageLive)e.NewItems[i];
-                    UpdateMessageVm(ViewMessages[startIndex + i], message);
+                    if (e.NewItems[i] is MessageLive message)
+                        UpdateMessageVm(ViewMessages[startIndex + i], message);
                 }
             }
         });
