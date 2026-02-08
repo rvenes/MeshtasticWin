@@ -31,13 +31,14 @@
 
             <ListView Grid.Row="6"
                       x:Name="NodesList"
-                      ItemsSource="{x:Bind FilteredNodesView, Mode=OneWay}"
+                      ItemsSource="{x:Bind NodesSource, Mode=OneWay}"
                       SelectionMode="Single"
                       SelectionChanged="NodesList_SelectionChanged"
                       DoubleTapped="NodesList_DoubleTapped">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:NodeLive">
-                        <Grid Padding="6" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                        <Grid Padding="6" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto"
+                              Visibility="{x:Bind NodeVisibility}">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="0,0,8,0">
                                 <Ellipse Width="8" Height="8"
                                          Fill="LimeGreen"
