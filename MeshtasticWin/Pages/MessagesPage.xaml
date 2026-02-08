@@ -22,6 +22,7 @@
 	            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12" Opacity="0.85" VerticalAlignment="Center">
 	                <ToggleButton x:Name="HideInactiveToggle" Content="Hide inactive" Click="HideInactiveToggle_Click"/>
 	                <ComboBox x:Name="AgeFilterCombo" Width="170" SelectionChanged="AgeFilterCombo_SelectionChanged"/>
+                    <ComboBox x:Name="SortCombo" Width="180" SelectionChanged="SortCombo_SelectionChanged"/>
 	            </StackPanel>
 
 	            <TextBox Grid.Row="4"
@@ -31,7 +32,7 @@
 
             <ListView Grid.Row="6"
                       x:Name="ChatList"
-                      ItemsSource="{x:Bind VisibleChatItems, Mode=OneWay}"
+                      ItemsSource="{Binding Source={StaticResource ChatsView}}"
                       SelectionMode="Single"
                       SelectionChanged="ChatList_SelectionChanged">
                 <ListView.ItemTemplate>

@@ -7,6 +7,10 @@
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     xmlns:localcontrols="using:MeshtasticWin.Controls">
 
+    <Page.Resources>
+        <CollectionViewSource x:Name="NodesView" x:Key="NodesView"/>
+    </Page.Resources>
+
     <Grid Padding="12">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="360"/>
@@ -22,6 +26,7 @@
                 <TextBlock Text="{x:Bind NodeCountsText, Mode=OneWay}"/>
                 <ToggleButton x:Name="HideInactiveToggle" Content="Hide inactive" Click="HideInactiveToggle_Click"/>
                 <ComboBox x:Name="AgeFilterCombo" Width="170" SelectionChanged="AgeFilterCombo_SelectionChanged"/>
+                <ComboBox x:Name="SortCombo" Width="180" SelectionChanged="SortCombo_SelectionChanged"/>
             </StackPanel>
 
             <TextBox Grid.Row="4"
@@ -31,7 +36,7 @@
 
             <ListView Grid.Row="6"
                       x:Name="NodesList"
-                      ItemsSource="{x:Bind VisibleNodes, Mode=OneWay}"
+                      ItemsSource="{Binding Source={StaticResource NodesView}}"
                       SelectionMode="Single"
                       SelectionChanged="NodesList_SelectionChanged"
                       DoubleTapped="NodesList_DoubleTapped">

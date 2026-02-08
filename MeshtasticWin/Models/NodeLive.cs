@@ -42,14 +42,32 @@ public sealed class NodeLive : INotifyPropertyChanged
     public string LongName
     {
         get => _longName;
-        set { if (_longName != value) { _longName = value; OnChanged(nameof(LongName)); OnChanged(nameof(Name)); } }
+        set
+        {
+            if (_longName != value)
+            {
+                _longName = value;
+                OnChanged(nameof(LongName));
+                OnChanged(nameof(Name));
+                OnChanged(nameof(SortNameKey));
+            }
+        }
     }
 
     private string _shortName = "";
     public string ShortName
     {
         get => _shortName;
-        set { if (_shortName != value) { _shortName = value; OnChanged(nameof(ShortName)); OnChanged(nameof(Name)); } }
+        set
+        {
+            if (_shortName != value)
+            {
+                _shortName = value;
+                OnChanged(nameof(ShortName));
+                OnChanged(nameof(Name));
+                OnChanged(nameof(SortNameKey));
+            }
+        }
     }
 
     private string _sub = "";
@@ -158,6 +176,20 @@ public sealed class NodeLive : INotifyPropertyChanged
             return IdHex;
         }
     }
+
+    public string SortNameKey
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(LongName))
+                return LongName.ToUpperInvariant();
+            if (!string.IsNullOrWhiteSpace(ShortName))
+                return ShortName.ToUpperInvariant();
+            return (IdHex ?? "").ToUpperInvariant();
+        }
+    }
+
+    public string SortIdKey => (IdHex ?? "").ToUpperInvariant();
 
     public NodeLive(string idHex)
     {

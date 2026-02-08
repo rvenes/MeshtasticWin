@@ -2,7 +2,6 @@
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Data;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 using System;
@@ -14,8 +13,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.UI.Xaml.Data;
 using Windows.System;
+using Windows.UI.Xaml.Data;
 
 namespace MeshtasticWin.Pages;
 
@@ -54,6 +53,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private bool _suppressListEvent;
     private string _chatFilter = "";
+    private SortMode _sortMode = SortMode.Alphabetical;
 
     private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
@@ -61,6 +61,12 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     private readonly ChatListItemVm _primaryChatItem = ChatListItemVm.Primary();
     private readonly Dictionary<string, ChatListItemVm> _chatItemsByPeer = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _chatFilterRefreshTimer = new();
+
+    private enum SortMode
+    {
+        Alphabetical,
+        LastActive
+    }
 
     public MessagesPage()
     {
@@ -70,7 +76,13 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         AgeFilterCombo.Items.Add("Hide > 3 months");
         AgeFilterCombo.SelectedIndex = 1;
 
+        SortCombo.Items.Add("Sort: Alphabetical");
+        SortCombo.Items.Add("Sort: Last active");
+        SortCombo.SelectedIndex = 0;
+
         HideInactiveToggle.IsChecked = _hideInactive;
+        ChatsView.Source = VisibleChatItems;
+        ApplyChatSorting();
 
         MeshtasticWin.AppState.Messages.CollectionChanged += Messages_CollectionChanged;
         MeshtasticWin.AppState.Nodes.CollectionChanged += Nodes_CollectionChanged;
@@ -215,6 +227,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
         if (_chatItemsByPeer.TryGetValue(node.IdHex, out var item))
             item.UpdateFromNode(node);
+        RefreshChatSorting();
     }
 
     private bool ShouldShowChatItem(NodeLive node)
@@ -278,6 +291,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         }
 
         EnsureChatSelectionVisible();
+        RefreshChatSorting();
     }
 
     private void EnsureChatSelectionVisible()
@@ -376,6 +390,17 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         SyncListToActiveChat();
     }
 
+    private void SortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _sortMode = SortCombo.SelectedIndex switch
+        {
+            1 => SortMode.LastActive,
+            _ => SortMode.Alphabetical
+        };
+
+        ApplyChatSorting();
+    }
+
     private void HideInactiveToggle_Click(object sender, RoutedEventArgs e)
     {
         _hideInactive = HideInactiveToggle.IsChecked == true;
@@ -409,6 +434,31 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     private void ApplyMessageVisibilityToAll()
     {
         OnChanged(nameof(SelectedChatMessages));
+    }
+
+    private void ApplyChatSorting()
+    {
+        if (ChatsView is null)
+            return;
+
+        ChatsView.SortDescriptions.Clear();
+        switch (_sortMode)
+        {
+            case SortMode.LastActive:
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.LastHeardUtc), ListSortDirection.Descending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                break;
+            default:
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortNameKey), ListSortDirection.Ascending));
+                ChatsView.SortDescriptions.Add(new SortDescription(nameof(ChatListItemVm.SortIdKey), ListSortDirection.Ascending));
+                break;
+        }
+    }
+
+    private void RefreshChatSorting()
+    {
+        ApplyChatSorting();
     }
 
     private MessageVm CreateMessageVm(MessageLive message)
@@ -712,6 +762,13 @@ public sealed class ChatListItemVm : INotifyPropertyChanged
         set { if (_lastHeard != value) { _lastHeard = value; OnChanged(nameof(LastHeard)); } }
     }
 
+    private DateTime _lastHeardUtc = DateTime.MinValue;
+    public DateTime LastHeardUtc
+    {
+        get => _lastHeardUtc;
+        set { if (_lastHeardUtc != value) { _lastHeardUtc = value; OnChanged(nameof(LastHeardUtc)); } }
+    }
+
     private string _snr = "";
     public string SNR
     {
@@ -750,17 +807,34 @@ public sealed class ChatListItemVm : INotifyPropertyChanged
 
     public Visibility RowVisibility => IsVisible ? Visibility.Visible : Visibility.Collapsed;
 
+    private string _sortNameKey = "";
+    public string SortNameKey
+    {
+        get => _sortNameKey;
+        set { if (_sortNameKey != value) { _sortNameKey = value; OnChanged(nameof(SortNameKey)); } }
+    }
+
+    private string _sortIdKey = "";
+    public string SortIdKey
+    {
+        get => _sortIdKey;
+        set { if (_sortIdKey != value) { _sortIdKey = value; OnChanged(nameof(SortIdKey)); } }
+    }
+
     public static ChatListItemVm Primary()
         => new()
         {
             Title = "Primary channel",
             ShortId = "",
             LastHeard = "Broadcast",
+            LastHeardUtc = DateTime.MinValue,
             SNR = "—",
             RSSI = "—",
             UnreadVisible = MeshtasticWin.AppState.HasUnread(null) ? Visibility.Visible : Visibility.Collapsed,
             PeerIdHex = null,
-            ChatKey = "channel:primary"
+            ChatKey = "channel:primary",
+            SortNameKey = "PRIMARY CHANNEL",
+            SortIdKey = ""
         };
 
     public static ChatListItemVm ForNode(NodeLive n)
@@ -771,11 +845,14 @@ public sealed class ChatListItemVm : INotifyPropertyChanged
                 : n.Name,
             ShortId = n.ShortId ?? "",
             LastHeard = n.LastHeard ?? "—",
+            LastHeardUtc = n.LastHeardUtc,
             SNR = n.SNR ?? "—",
             RSSI = n.RSSI ?? "—",
             UnreadVisible = MeshtasticWin.AppState.HasUnread(n.IdHex) ? Visibility.Visible : Visibility.Collapsed,
             PeerIdHex = n.IdHex,
-            ChatKey = $"dm:{n.IdHex}"
+            ChatKey = $"dm:{n.IdHex}",
+            SortNameKey = BuildSortNameKey(n.LongName, n.ShortName, n.IdHex),
+            SortIdKey = (n.IdHex ?? "").ToUpperInvariant()
         };
 
     public static ChatListItemVm ForPeer(string peerIdHex)
@@ -784,11 +861,14 @@ public sealed class ChatListItemVm : INotifyPropertyChanged
             Title = string.IsNullOrWhiteSpace(peerIdHex) ? "Unknown" : peerIdHex,
             ShortId = "",
             LastHeard = "—",
+            LastHeardUtc = DateTime.MinValue,
             SNR = "—",
             RSSI = "—",
             UnreadVisible = Visibility.Collapsed,
             PeerIdHex = peerIdHex,
-            ChatKey = $"dm:{peerIdHex}"
+            ChatKey = $"dm:{peerIdHex}",
+            SortNameKey = (peerIdHex ?? "").ToUpperInvariant(),
+            SortIdKey = (peerIdHex ?? "").ToUpperInvariant()
         };
 
     public void UpdateFromNode(NodeLive n)
@@ -796,11 +876,23 @@ public sealed class ChatListItemVm : INotifyPropertyChanged
         Title = string.IsNullOrWhiteSpace(n.ShortId) ? n.Name : n.Name;
         ShortId = n.ShortId ?? "";
         LastHeard = n.LastHeard ?? "—";
+        LastHeardUtc = n.LastHeardUtc;
         SNR = n.SNR ?? "—";
         RSSI = n.RSSI ?? "—";
         UnreadVisible = MeshtasticWin.AppState.HasUnread(n.IdHex) ? Visibility.Visible : Visibility.Collapsed;
         PeerIdHex = n.IdHex;
         ChatKey = $"dm:{n.IdHex}";
+        SortNameKey = BuildSortNameKey(n.LongName, n.ShortName, n.IdHex);
+        SortIdKey = (n.IdHex ?? "").ToUpperInvariant();
+    }
+
+    private static string BuildSortNameKey(string? longName, string? shortName, string? idHex)
+    {
+        if (!string.IsNullOrWhiteSpace(longName))
+            return longName.ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(shortName))
+            return shortName.ToUpperInvariant();
+        return (idHex ?? "").ToUpperInvariant();
     }
 
     private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

@@ -20,6 +20,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Xml;
+using Windows.UI.Xaml.Data;
 using Windows.ApplicationModel;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -39,6 +40,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
     private string _filter = "";
+    private SortMode _sortMode = SortMode.Alphabetical;
     private readonly DispatcherTimer _throttle = new();
     private readonly DispatcherTimer _filterApplyTimer = new();
     private bool _mapReady;
@@ -233,6 +235,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public ObservableCollection<NodeLive> VisibleNodes { get; } = new();
     private readonly ObservableCollection<NodeLive> _allNodes = new();
 
+    private enum SortMode
+    {
+        Alphabetical,
+        LastActive
+    }
+
     public NodesPage()
     {
         InitializeComponent();
@@ -242,13 +250,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         AgeFilterCombo.Items.Add("Show all");
         AgeFilterCombo.Items.Add("Hide > 1 week");
         AgeFilterCombo.Items.Add("Hide > 2 weeks");
-        AgeFilterCombo.Items.Add("Hide > 3 weeks");
         AgeFilterCombo.Items.Add("Hide > 4 weeks");
         AgeFilterCombo.Items.Add("Hide > 1 month");
         AgeFilterCombo.Items.Add("Hide > 3 months");
-        AgeFilterCombo.SelectedIndex = 6;
+        AgeFilterCombo.SelectedIndex = 5;
+
+        SortCombo.Items.Add("Sort: Alphabetical");
+        SortCombo.Items.Add("Sort: Last active");
+        SortCombo.SelectedIndex = 0;
 
         HideInactiveToggle.IsChecked = _hideInactive;
+        NodesView.Source = VisibleNodes;
+        ApplyNodeSorting();
 
         MeshtasticWin.AppState.Nodes.CollectionChanged += Nodes_CollectionChanged;
         foreach (var n in MeshtasticWin.AppState.Nodes)
@@ -619,11 +632,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (e.PropertyName is nameof(NodeLive.LastHeardUtc) or nameof(NodeLive.LastHeard)
             or nameof(NodeLive.Latitude) or nameof(NodeLive.Longitude)
             or nameof(NodeLive.RSSI) or nameof(NodeLive.SNR)
-            or nameof(NodeLive.Name) or nameof(NodeLive.ShortName))
+            or nameof(NodeLive.Name) or nameof(NodeLive.ShortName) or nameof(NodeLive.SortNameKey))
         {
             OnChanged(nameof(NodeCountsText));
             ScheduleFilterApply();
             TriggerMapUpdate();
+            RefreshNodeSorting();
         }
 
         if (sender is NodeLive updatedNode
@@ -702,6 +716,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         EnsureSelectionVisible();
         OnChanged(nameof(NodeCountsText));
+        RefreshNodeSorting();
 #if DEBUG
         Debug.WriteLine($"Nodes filter: all={_allNodes.Count} visible={VisibleNodes.Count} hideInactive={_hideInactive} hideDays={_hideOlderThanDays} filter=\"{_filter}\"");
 #endif
@@ -745,15 +760,50 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             0 => 99999,
             1 => 7,
             2 => 14,
-            3 => 21,
-            4 => 28,
-            5 => 31,
-            6 => 90,
+            3 => 28,
+            4 => 31,
+            5 => 90,
             _ => 99999
         };
 
         RebuildVisibleNodes();
         TriggerMapUpdate();
+    }
+
+    private void SortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _sortMode = SortCombo.SelectedIndex switch
+        {
+            1 => SortMode.LastActive,
+            _ => SortMode.Alphabetical
+        };
+
+        ApplyNodeSorting();
+    }
+
+    private void ApplyNodeSorting()
+    {
+        if (NodesView is null)
+            return;
+
+        NodesView.SortDescriptions.Clear();
+        switch (_sortMode)
+        {
+            case SortMode.LastActive:
+                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.LastHeardUtc), ListSortDirection.Descending));
+                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
+                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
+                break;
+            default:
+                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortNameKey), ListSortDirection.Ascending));
+                NodesView.SortDescriptions.Add(new SortDescription(nameof(NodeLive.SortIdKey), ListSortDirection.Ascending));
+                break;
+        }
+    }
+
+    private void RefreshNodeSorting()
+    {
+        ApplyNodeSorting();
     }
 
     private void HideInactiveToggle_Click(object sender, RoutedEventArgs e)
