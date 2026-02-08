@@ -36,10 +36,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
     private string _filter = "";
-    private SortMode _sortMode = SortMode.Alphabetical;
+    private SortMode _sortMode = SortMode.AlphabeticalAsc;
     private readonly DispatcherTimer _throttle = new();
     private readonly DispatcherTimer _filterApplyTimer = new();
     private bool _mapReady;
@@ -237,8 +236,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private enum SortMode
     {
-        Alphabetical,
-        LastActive
+        AlphabeticalAsc,
+        AlphabeticalDesc,
+        LastActive,
+        OldestActive
     }
 
     public NodesPage()
@@ -247,16 +248,10 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         _deviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
 
-        AgeFilterCombo.Items.Add("Show all");
-        AgeFilterCombo.Items.Add("Hide > 1 week");
-        AgeFilterCombo.Items.Add("Hide > 2 weeks");
-        AgeFilterCombo.Items.Add("Hide > 4 weeks");
-        AgeFilterCombo.Items.Add("Hide > 1 month");
-        AgeFilterCombo.Items.Add("Hide > 3 months");
-        AgeFilterCombo.SelectedIndex = 5;
-
-        SortCombo.Items.Add("Sort: Alphabetical");
+        SortCombo.Items.Add("Sort: Alphabetical A–Z");
+        SortCombo.Items.Add("Sort: Alphabetical Z–A");
         SortCombo.Items.Add("Sort: Last active");
+        SortCombo.Items.Add("Sort: Oldest active");
         SortCombo.SelectedIndex = 0;
 
         HideInactiveToggle.IsChecked = _hideInactive;
@@ -663,13 +658,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return false;
     }
 
-    private bool IsTooOld(NodeLive n)
-    {
-        if (_hideOlderThanDays >= 99999) return false;
-        if (n.LastHeardUtc == DateTime.MinValue) return false;
-        return (DateTime.UtcNow - n.LastHeardUtc) > TimeSpan.FromDays(_hideOlderThanDays);
-    }
-
     private bool IsHiddenByInactive(NodeLive n)
     {
         if (!_hideInactive) return false;
@@ -727,13 +715,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         OnChanged(nameof(NodeCountsText));
         RefreshNodeSorting();
 #if DEBUG
-        Debug.WriteLine($"Nodes filter: all={_allNodes.Count} visible={VisibleNodes.Count} hideInactive={_hideInactive} hideDays={_hideOlderThanDays} filter=\"{_filter}\"");
+        Debug.WriteLine($"Nodes filter: all={_allNodes.Count} visible={VisibleNodes.Count} hideInactive={_hideInactive} filter=\"{_filter}\"");
 #endif
     }
 
     private bool ShouldShowNode(NodeLive node)
     {
-        if (IsTooOld(node) || IsHiddenByInactive(node))
+        if (IsHiddenByInactive(node))
             return false;
 
         var q = (_filter ?? "").Trim();
@@ -762,29 +750,14 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         TriggerMapUpdate();
     }
 
-    private void AgeFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs _)
-    {
-        _hideOlderThanDays = AgeFilterCombo.SelectedIndex switch
-        {
-            0 => 99999,
-            1 => 7,
-            2 => 14,
-            3 => 28,
-            4 => 31,
-            5 => 90,
-            _ => 99999
-        };
-
-        RebuildVisibleNodes();
-        TriggerMapUpdate();
-    }
-
     private void SortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         _sortMode = SortCombo.SelectedIndex switch
         {
-            1 => SortMode.LastActive,
-            _ => SortMode.Alphabetical
+            1 => SortMode.AlphabeticalDesc,
+            2 => SortMode.LastActive,
+            3 => SortMode.OldestActive,
+            _ => SortMode.AlphabeticalAsc
         };
 
         ApplyNodeSorting();
@@ -805,6 +778,20 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 .ThenByDescending(entry => entry.item.LastHeardUtc)
                 .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList(),
+            SortMode.OldestActive => indexed
+                .OrderByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .ThenBy(entry => entry.item.LastHeardUtc)
+                .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList(),
+            SortMode.AlphabeticalDesc => indexed
+                .OrderByDescending(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.index)
                 .Select(entry => entry.item)
                 .ToList(),
@@ -849,6 +836,16 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 .ThenBy(n => n.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(n => n.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
+            SortMode.OldestActive => nodes
+                .OrderByDescending(n => n.LastHeardUtc != DateTime.MinValue)
+                .ThenBy(n => n.LastHeardUtc)
+                .ThenBy(n => n.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(n => n.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            SortMode.AlphabeticalDesc => nodes
+                .OrderByDescending(n => n.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(n => n.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
             _ => nodes
                 .OrderBy(n => n.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(n => n.SortIdKey, StringComparer.OrdinalIgnoreCase)
@@ -879,7 +876,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         if (!_mapReady || MapView.CoreWebView2 is null) return;
 
         var nodes = MeshtasticWin.AppState.Nodes
-            .Where(n => !IsTooOld(n))
             .Where(n => !IsHiddenByInactive(n))
             .Select(n => new
             {

@@ -53,10 +53,9 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private bool _suppressListEvent;
     private string _chatFilter = "";
-    private SortMode _sortMode = SortMode.Alphabetical;
+    private SortMode _sortMode = SortMode.AlphabeticalAsc;
     private ObservableCollection<ChatListItemVm> ChatsView { get; }
 
-    private int _hideOlderThanDays = 90; // default: 3 months
     private bool _hideInactive = true;
 
     private readonly ChatListItemVm _primaryChatItem = ChatListItemVm.Primary();
@@ -66,20 +65,20 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private enum SortMode
     {
-        Alphabetical,
-        LastActive
+        AlphabeticalAsc,
+        AlphabeticalDesc,
+        LastActive,
+        OldestActive
     }
 
     public MessagesPage()
     {
         InitializeComponent();
 
-        AgeFilterCombo.Items.Add("Show all");
-        AgeFilterCombo.Items.Add("Hide > 3 months");
-        AgeFilterCombo.SelectedIndex = 1;
-
-        SortCombo.Items.Add("Sort: Alphabetical");
+        SortCombo.Items.Add("Sort: Alphabetical A–Z");
+        SortCombo.Items.Add("Sort: Alphabetical Z–A");
         SortCombo.Items.Add("Sort: Last active");
+        SortCombo.Items.Add("Sort: Oldest active");
         SortCombo.SelectedIndex = 0;
 
         HideInactiveToggle.IsChecked = _hideInactive;
@@ -241,7 +240,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private bool ShouldShowChatItem(NodeLive node)
     {
-        if (IsTooOld(node) || IsHiddenByInactive(node))
+        if (IsHiddenByInactive(node))
             return false;
 
         var q = (_chatFilter ?? "").Trim();
@@ -255,7 +254,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 
     private void ScheduleChatFilterRefresh()
     {
-        if (!_hideInactive && _hideOlderThanDays >= 99999 && string.IsNullOrWhiteSpace(_chatFilter))
+        if (!_hideInactive && string.IsNullOrWhiteSpace(_chatFilter))
             return;
 
         if (_chatFilterRefreshTimer.IsEnabled)
@@ -388,25 +387,14 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         SyncListToActiveChat();
     }
 
-    private void AgeFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        _hideOlderThanDays = AgeFilterCombo.SelectedIndex switch
-        {
-            0 => 99999,
-            1 => 90,
-            _ => 90
-        };
-
-        RebuildVisibleChats();
-        SyncListToActiveChat();
-    }
-
     private void SortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         _sortMode = SortCombo.SelectedIndex switch
         {
-            1 => SortMode.LastActive,
-            _ => SortMode.Alphabetical
+            1 => SortMode.AlphabeticalDesc,
+            2 => SortMode.LastActive,
+            3 => SortMode.OldestActive,
+            _ => SortMode.AlphabeticalAsc
         };
 
         ApplyChatSorting();
@@ -419,14 +407,6 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         _hideInactive = HideInactiveToggle.IsChecked == true;
         RebuildVisibleChats();
         SyncListToActiveChat();
-    }
-
-    private bool IsTooOld(NodeLive n)
-    {
-        if (_hideOlderThanDays >= 99999) return false;
-        if (n.LastHeardUtc == DateTime.MinValue) return false;
-        var age = DateTime.UtcNow - n.LastHeardUtc;
-        return age.TotalDays > _hideOlderThanDays;
     }
 
     private bool IsHiddenByInactive(NodeLive n)
@@ -454,13 +434,27 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         return _sortMode switch
         {
             SortMode.LastActive => items
-                .OrderByDescending(item => item.LastHeardUtc != DateTime.MinValue)
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenByDescending(item => item.LastHeardUtc != DateTime.MinValue)
                 .ThenByDescending(item => item.LastHeardUtc)
                 .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
+            SortMode.OldestActive => items
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenByDescending(item => item.LastHeardUtc != DateTime.MinValue)
+                .ThenBy(item => item.LastHeardUtc)
+                .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            SortMode.AlphabeticalDesc => items
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenByDescending(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
             _ => items
-                .OrderBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
@@ -475,15 +469,33 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         var sorted = _sortMode switch
         {
             SortMode.LastActive => indexed
-                .OrderByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
                 .ThenByDescending(entry => entry.item.LastHeardUtc)
                 .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.index)
                 .Select(entry => entry.item)
                 .ToList(),
+            SortMode.OldestActive => indexed
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .ThenBy(entry => entry.item.LastHeardUtc)
+                .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList(),
+            SortMode.AlphabeticalDesc => indexed
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenByDescending(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.item)
+                .ToList(),
             _ => indexed
-                .OrderBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.index)
                 .Select(entry => entry.item)
