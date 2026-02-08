@@ -13,7 +13,10 @@
         <!-- Topp: COM + knappar -->
         <StackPanel Orientation="Horizontal" Spacing="12">
             <TextBlock Text="COM:" VerticalAlignment="Center" />
-            <TextBox x:Name="PortBox" Width="140" PlaceholderText="COM5" Text="COM5"/>
+            <ComboBox x:Name="PortCombo" Width="140" SelectionChanged="PortCombo_SelectionChanged"/>
+            <Button x:Name="RefreshPortsButton"
+                    Content="Refresh"
+                    Click="RefreshPorts_Click" />
             <Button x:Name="ConnectButton"
         Content="Connect"
         Click="Connect_Click" />
