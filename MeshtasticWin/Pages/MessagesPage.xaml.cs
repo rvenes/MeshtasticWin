@@ -434,23 +434,27 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         return _sortMode switch
         {
             SortMode.LastActive => items
-                .OrderByDescending(item => item.LastHeardUtc != DateTime.MinValue)
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenByDescending(item => item.LastHeardUtc != DateTime.MinValue)
                 .ThenByDescending(item => item.LastHeardUtc)
                 .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             SortMode.OldestActive => items
-                .OrderByDescending(item => item.LastHeardUtc != DateTime.MinValue)
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenByDescending(item => item.LastHeardUtc != DateTime.MinValue)
                 .ThenBy(item => item.LastHeardUtc)
                 .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             SortMode.AlphabeticalDesc => items
-                .OrderByDescending(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenByDescending(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenByDescending(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             _ => items
-                .OrderBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(item => item.PeerIdHex is null)
+                .ThenBy(item => item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
@@ -465,7 +469,8 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         var sorted = _sortMode switch
         {
             SortMode.LastActive => indexed
-                .OrderByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
                 .ThenByDescending(entry => entry.item.LastHeardUtc)
                 .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
@@ -473,7 +478,8 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
                 .Select(entry => entry.item)
                 .ToList(),
             SortMode.OldestActive => indexed
-                .OrderByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenByDescending(entry => entry.item.LastHeardUtc != DateTime.MinValue)
                 .ThenBy(entry => entry.item.LastHeardUtc)
                 .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
@@ -481,13 +487,15 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
                 .Select(entry => entry.item)
                 .ToList(),
             SortMode.AlphabeticalDesc => indexed
-                .OrderByDescending(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenByDescending(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenByDescending(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.index)
                 .Select(entry => entry.item)
                 .ToList(),
             _ => indexed
-                .OrderBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(entry => entry.item.PeerIdHex is null)
+                .ThenBy(entry => entry.item.SortNameKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.item.SortIdKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.index)
                 .Select(entry => entry.item)
