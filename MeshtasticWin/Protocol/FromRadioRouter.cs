@@ -153,7 +153,7 @@ public static class FromRadioRouter
         // --- TRACEROUTE_APP ---
         if (portNum == TraceRoutePortNum)
         {
-            if (TryHandleTraceRouteFromPayload(decodedObj, fromNodeNum, rxSnr, rxRssi, logToUi, out var s))
+            if (TryHandleTraceRouteFromPayload(decodedObj, fromNodeNum, toNodeNum, rxSnr, rxRssi, logToUi, out var s))
                 logToUi("TraceRoute: " + s);
             return;
         }
@@ -212,6 +212,8 @@ public static class FromRadioRouter
 
         var idHex = $"0x{nodeNum:x8}";
         var node = EnsureNode(idHex, nodeNum);
+        if (RadioClient.Instance.IsConnected && string.IsNullOrWhiteSpace(MeshtasticWin.AppState.ConnectedNodeIdHex))
+            MeshtasticWin.AppState.SetConnectedNodeIdHex(idHex);
 
         // User
         var userObj = nodeInfoObj.GetType().GetProperty("User", BindingFlags.Public | BindingFlags.Instance)?.GetValue(nodeInfoObj);
@@ -556,7 +558,14 @@ public static class FromRadioRouter
         }
     }
 
-    private static bool TryHandleTraceRouteFromPayload(object decodedObj, uint fromNodeNum, double? rxSnr, double? rxRssi, Action<string> logToUi, out string summary)
+    private static bool TryHandleTraceRouteFromPayload(
+        object decodedObj,
+        uint fromNodeNum,
+        uint toNodeNum,
+        double? rxSnr,
+        double? rxRssi,
+        Action<string> logToUi,
+        out string summary)
     {
         summary = "traceroute empty";
         var payloadBytes = TryGetPayloadBytes(decodedObj);
@@ -602,9 +611,36 @@ public static class FromRadioRouter
         }
 
         var formatted = FormatProtoSingleLine(routeObj);
+        var sb = new StringBuilder();
+        if (TraceRouteContext.TryMatchActiveTraceRoute(fromNodeNum, out var match))
+        {
+            sb.Append("active: true ");
+            if (toNodeNum != 0xFFFFFFFF)
+                sb.Append("from: ").Append(toNodeNum).Append(' ');
+            sb.Append("to: ").Append(match.TargetNodeNum).Append(' ');
+        }
+        else
+        {
+            sb.Append("passive: true ");
+            sb.Append("from: ").Append(fromNodeNum).Append(' ');
+            if (toNodeNum != 0xFFFFFFFF)
+            {
+                sb.Append("to: ").Append(toNodeNum).Append(' ');
+            }
+            else
+            {
+                var connected = MeshtasticWin.AppState.Nodes.FirstOrDefault(n =>
+                    string.Equals(n.IdHex, MeshtasticWin.AppState.ConnectedNodeIdHex, StringComparison.OrdinalIgnoreCase));
+                if (connected?.NodeNum > 0)
+                    sb.Append("to: ").Append(connected.NodeNum).Append(' ');
+            }
+        }
+
+        sb.Append(formatted);
+        formatted = sb.ToString();
         if (rxSnr.HasValue || rxRssi.HasValue)
         {
-            var sb = new StringBuilder(formatted);
+            sb = new StringBuilder(formatted);
             if (rxSnr.HasValue)
                 sb.Append(" rx_snr: ").Append(rxSnr.Value.ToString("0.0", CultureInfo.InvariantCulture));
             if (rxRssi.HasValue)
@@ -696,12 +732,34 @@ public static class FromRadioRouter
 
         var formatted = FormatProtoSingleLine(routeObj);
         var sb = new StringBuilder();
-        sb.Append("passive: true ");
-        if (!string.IsNullOrWhiteSpace(variant))
-            sb.Append("variant: ").Append(variant).Append(' ');
-        sb.Append("from: ").Append(fromNodeNum).Append(' ');
-        if (toNodeNum != 0xFFFFFFFF)
-            sb.Append("to: ").Append(toNodeNum).Append(' ');
+        var isActive = TraceRouteContext.TryMatchActiveTraceRoute(fromNodeNum, out var match);
+        if (isActive)
+        {
+            sb.Append("active: true ");
+            if (!string.IsNullOrWhiteSpace(variant))
+                sb.Append("variant: ").Append(variant).Append(' ');
+            if (toNodeNum != 0xFFFFFFFF)
+                sb.Append("from: ").Append(toNodeNum).Append(' ');
+            sb.Append("to: ").Append(match.TargetNodeNum).Append(' ');
+        }
+        else
+        {
+            sb.Append("passive: true ");
+            if (!string.IsNullOrWhiteSpace(variant))
+                sb.Append("variant: ").Append(variant).Append(' ');
+            sb.Append("from: ").Append(fromNodeNum).Append(' ');
+            if (toNodeNum != 0xFFFFFFFF)
+            {
+                sb.Append("to: ").Append(toNodeNum).Append(' ');
+            }
+            else
+            {
+                var connected = MeshtasticWin.AppState.Nodes.FirstOrDefault(n =>
+                    string.Equals(n.IdHex, MeshtasticWin.AppState.ConnectedNodeIdHex, StringComparison.OrdinalIgnoreCase));
+                if (connected?.NodeNum > 0)
+                    sb.Append("to: ").Append(connected.NodeNum).Append(' ');
+            }
+        }
         if (channelIndex.HasValue)
             sb.Append("channel: ").Append(channelIndex.Value).Append(' ');
         sb.Append(formatted);

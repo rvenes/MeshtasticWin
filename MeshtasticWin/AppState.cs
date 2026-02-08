@@ -11,6 +11,21 @@ public static class AppState
     public static ObservableCollection<MessageLive> Messages { get; } = new();
     public static bool EnableWebViewDevTools { get; set; }
 
+    public static string? ConnectedNodeIdHex { get; private set; }
+    public static event Action? ConnectedNodeChanged;
+
+    public static void SetConnectedNodeIdHex(string? idHex)
+    {
+        if (string.IsNullOrWhiteSpace(idHex))
+            idHex = null;
+
+        if (string.Equals(ConnectedNodeIdHex, idHex, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        ConnectedNodeIdHex = idHex;
+        ConnectedNodeChanged?.Invoke();
+    }
+
 
 // Unread tracking (for chat list indicators)
 // Key: null => Primary channel, otherwise peer node IdHex (e.g. "0xd6c218df")

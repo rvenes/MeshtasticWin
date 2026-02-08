@@ -75,6 +75,7 @@ public sealed class RadioClient
 
         IsConnected = true;
         ConnectionChanged?.Invoke();
+        MeshtasticWin.AppState.SetConnectedNodeIdHex(null);
 
         try
         {
@@ -100,6 +101,7 @@ public sealed class RadioClient
         IsConnected = false;
         PortName = null;
         ConnectionChanged?.Invoke();
+        MeshtasticWin.AppState.SetConnectedNodeIdHex(null);
     }
 
     // Broadcast
