@@ -17,13 +17,14 @@ public static class DeviceMetricsLogService
 
     public static IReadOnlyList<DeviceMetricSample> GetSamples(string idHex, int maxSamples = DefaultMaxSamples)
     {
-        var key = NormalizeNodeId(idHex);
+        var nodeKey = NormalizeNodeId(idHex);
+        var scopedKey = BuildScopedCacheKey(nodeKey);
         lock (_gate)
         {
-            if (!_cache.TryGetValue(key, out var list))
+            if (!_cache.TryGetValue(scopedKey, out var list))
             {
-                list = LoadSamples(key, maxSamples);
-                _cache[key] = list;
+                list = LoadSamples(nodeKey, maxSamples);
+                _cache[scopedKey] = list;
             }
 
             return list.ToList();
@@ -32,8 +33,9 @@ public static class DeviceMetricsLogService
 
     public static void AppendSample(string idHex, DeviceMetricSample sample, int maxSamples = DefaultMaxSamples)
     {
-        var key = NormalizeNodeId(idHex);
-        var path = GetLogPath(key);
+        var nodeKey = NormalizeNodeId(idHex);
+        var scopedKey = BuildScopedCacheKey(nodeKey);
+        var path = GetLogPath(nodeKey);
 
         if (sample.Timestamp.Kind != DateTimeKind.Utc)
             sample = sample with { Timestamp = sample.Timestamp.ToUniversalTime() };
@@ -54,10 +56,10 @@ public static class DeviceMetricsLogService
 
             File.AppendAllText(path, line + Environment.NewLine);
 
-            if (!_cache.TryGetValue(key, out var list))
+            if (!_cache.TryGetValue(scopedKey, out var list))
             {
                 list = new List<DeviceMetricSample>();
-                _cache[key] = list;
+                _cache[scopedKey] = list;
             }
 
             list.Insert(0, sample);
@@ -65,16 +67,17 @@ public static class DeviceMetricsLogService
                 list.RemoveRange(maxSamples, list.Count - maxSamples);
         }
 
-        SampleAdded?.Invoke(key, sample);
+        SampleAdded?.Invoke(nodeKey, sample);
     }
 
     public static void ClearSamples(string idHex)
     {
-        var key = NormalizeNodeId(idHex);
-        var path = GetLogPath(key);
+        var nodeKey = NormalizeNodeId(idHex);
+        var scopedKey = BuildScopedCacheKey(nodeKey);
+        var path = GetLogPath(nodeKey);
         lock (_gate)
         {
-            _cache.Remove(key);
+            _cache.Remove(scopedKey);
             if (File.Exists(path))
                 File.Delete(path);
         }
@@ -150,6 +153,9 @@ public static class DeviceMetricsLogService
 
         return $"0x{safe.ToUpperInvariant()}";
     }
+
+    private static string BuildScopedCacheKey(string normalizedNodeId)
+        => $"{AppDataPaths.ActiveNodeScope}|{normalizedNodeId}";
 
     private static string FormatNullable(double? value, string format)
         => value.HasValue ? value.Value.ToString(format, CultureInfo.InvariantCulture) : "";

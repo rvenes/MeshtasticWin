@@ -122,6 +122,16 @@ public sealed class NodeLive : INotifyPropertyChanged
 
     public bool UpdatePosition(double lat, double lon, DateTime tsUtc, double? alt = null)
     {
+        // Ignore invalid/default coordinates so nodes are not shown at 0,0.
+        if (double.IsNaN(lat) || double.IsInfinity(lat) ||
+            double.IsNaN(lon) || double.IsInfinity(lon) ||
+            lat < -90 || lat > 90 ||
+            lon < -180 || lon > 180 ||
+            (Math.Abs(lat) < 0.000001 && Math.Abs(lon) < 0.000001))
+        {
+            return false;
+        }
+
         Latitude = lat;
         Longitude = lon;
         LastPositionUtc = tsUtc;

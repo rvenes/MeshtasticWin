@@ -385,6 +385,46 @@
                     <controls:TabViewItem IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Environment Metrics" Foreground="#4FC3F7"/>
+                                <Ellipse Width="8" Height="8" Fill="#4FC3F7" VerticalAlignment="Center"
+                                         Visibility="{x:Bind EnvironmentMetricsTabIndicatorVisibility, Mode=OneWay}"/>
+                            </StackPanel>
+                        </controls:TabViewItem.Header>
+                        <Grid RowDefinitions="Auto,*" Padding="12">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Content="Show folder"
+                                        Tag="EnvironmentMetrics"
+                                        Click="ShowLogFolder_Click"
+                                        IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                                <TextBlock Text="Delete older than (days):" VerticalAlignment="Center"/>
+                                <controls:NumberBox Width="96"
+                                                    Value="{x:Bind PositionLogRetentionDaysValue, Mode=TwoWay}"
+                                                    Minimum="1"
+                                                    SpinButtonPlacementMode="Inline"/>
+                                <Button Content="Delete"
+                                        Tag="EnvironmentMetrics"
+                                        Click="DeleteLogOlder_Click"
+                                        IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                                <Button Content="Delete all"
+                                        Tag="EnvironmentMetrics"
+                                        Click="DeleteLogAll_Click"
+                                        IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                                <Button Content="Export..." IsEnabled="False"/>
+                            </StackPanel>
+                            <TextBox Grid.Row="1"
+                                     Text="{x:Bind EnvironmentMetricsLogText, Mode=OneWay}"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     AcceptsReturn="True"
+                                     FontFamily="Consolas"
+                                     Padding="8"
+                                     Margin="0,8,0,0"/>
+                        </Grid>
+                    </controls:TabViewItem>
+
+                    <controls:TabViewItem IsClosable="False">
+                        <controls:TabViewItem.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Text="Power Metrics"/>
                                 <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
                                          Visibility="{x:Bind PowerMetricsTabIndicatorVisibility, Mode=OneWay}"/>

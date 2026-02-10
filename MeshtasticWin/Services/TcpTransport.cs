@@ -1,17 +1,20 @@
-﻿using System.IO.Ports;
 using Meshtastic.Core;
+using System;
 using System.IO;
-using System.Threading.Tasks;
+using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 
-namespace Meshtastic.Transport.Serial;
+namespace MeshtasticWin.Services;
 
-public sealed class SerialTransport : IRadioTransport
+public sealed class TcpTransport : IRadioTransport
 {
-    private readonly string _portName;
-    private readonly int _baudRate;
+    private readonly string _host;
+    private readonly int _portNumber;
     private readonly object _sync = new();
-    private SerialPort? _port;
+
+    private TcpClient? _client;
+    private NetworkStream? _stream;
     private CancellationTokenSource? _receiveCts;
     private Task? _receiveLoopTask;
     private int _isDisconnecting;
@@ -19,72 +22,60 @@ public sealed class SerialTransport : IRadioTransport
     public event Action<string>? Log;
     public event Action<byte[]>? BytesReceived;
 
-    public bool IsConnected => _port?.IsOpen == true;
+    public bool IsConnected => _client?.Connected == true && _stream is not null;
 
-    public SerialTransport(string portName, int baudRate = 115200)
+    public TcpTransport(string host, int portNumber)
     {
-        _portName = portName;
-        _baudRate = baudRate;
+        _host = host;
+        _portNumber = portNumber;
     }
 
-    public Task ConnectAsync(CancellationToken ct = default)
+    public async Task ConnectAsync(CancellationToken ct = default)
     {
         if (IsConnected)
-            return Task.CompletedTask;
+            return;
 
         Interlocked.Exchange(ref _isDisconnecting, 0);
 
-        var port = new SerialPort(_portName, _baudRate)
-        {
-            DtrEnable = true,
-            RtsEnable = true,
-            ReadBufferSize = 131072,
-            WriteBufferSize = 8192
-        };
-
-        port.Open();
+        var client = new TcpClient();
+        await client.ConnectAsync(_host, _portNumber, ct).ConfigureAwait(false);
+        var stream = client.GetStream();
 
         lock (_sync)
         {
-            _port = port;
+            _client = client;
+            _stream = stream;
             _receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _receiveLoopTask = Task.Run(() => ReceiveLoopAsync(port, _receiveCts.Token));
+            _receiveLoopTask = Task.Run(() => ReceiveLoopAsync(stream, _receiveCts.Token));
         }
 
-        Log?.Invoke($"Connected to {_portName}");
-        return Task.CompletedTask;
+        Log?.Invoke($"Connected to TCP {_host}:{_portNumber}");
     }
 
     public async Task DisconnectAsync()
     {
-        SerialPort? port;
         CancellationTokenSource? receiveCts;
         Task? receiveLoopTask;
+        NetworkStream? stream;
+        TcpClient? client;
 
         lock (_sync)
         {
-            port = _port;
             receiveCts = _receiveCts;
             receiveLoopTask = _receiveLoopTask;
-            _port = null;
+            stream = _stream;
+            client = _client;
+
             _receiveCts = null;
             _receiveLoopTask = null;
+            _stream = null;
+            _client = null;
         }
 
-        if (port is null)
+        if (client is null)
             return;
 
         Interlocked.Exchange(ref _isDisconnecting, 1);
-
-        try
-        {
-            port.DataReceived -= OnDataReceived;
-            port.ErrorReceived -= OnErrorReceived;
-            port.PinChanged -= OnPinChanged;
-        }
-        catch (ObjectDisposedException) { }
-        catch (NullReferenceException) { }
-        catch (IOException) { }
 
         try { receiveCts?.Cancel(); }
         catch (ObjectDisposedException) { }
@@ -99,27 +90,17 @@ public sealed class SerialTransport : IRadioTransport
             catch (IOException) { }
         }
 
-        try
-        {
-            receiveCts?.Dispose();
-        }
+        try { stream?.Dispose(); }
         catch (ObjectDisposedException) { }
         catch (NullReferenceException) { }
         catch (IOException) { }
 
-        try
-        {
-            if (port.IsOpen)
-                port.Close();
-        }
+        try { client.Dispose(); }
         catch (ObjectDisposedException) { }
         catch (NullReferenceException) { }
         catch (IOException) { }
 
-        try
-        {
-            port.Dispose();
-        }
+        try { receiveCts?.Dispose(); }
         catch (ObjectDisposedException) { }
         catch (NullReferenceException) { }
         catch (IOException) { }
@@ -127,25 +108,24 @@ public sealed class SerialTransport : IRadioTransport
         Log?.Invoke("Disconnected");
     }
 
-    public Task SendAsync(byte[] data, CancellationToken ct = default)
+    public async Task SendAsync(byte[] data, CancellationToken ct = default)
     {
-        var port = _port;
-        if (port is null || !port.IsOpen || Volatile.Read(ref _isDisconnecting) != 0)
+        var stream = _stream;
+        if (stream is null || Volatile.Read(ref _isDisconnecting) != 0)
             throw new InvalidOperationException("Not connected");
 
         try
         {
-            port.Write(data, 0, data.Length);
+            await stream.WriteAsync(data, ct).ConfigureAwait(false);
         }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _isDisconnecting) != 0) { return Task.CompletedTask; }
-        catch (NullReferenceException) when (Volatile.Read(ref _isDisconnecting) != 0) { return Task.CompletedTask; }
-        catch (IOException) when (Volatile.Read(ref _isDisconnecting) != 0) { return Task.CompletedTask; }
+        catch (ObjectDisposedException) when (Volatile.Read(ref _isDisconnecting) != 0) { return; }
+        catch (NullReferenceException) when (Volatile.Read(ref _isDisconnecting) != 0) { return; }
+        catch (IOException) when (Volatile.Read(ref _isDisconnecting) != 0) { return; }
 
         Log?.Invoke($"TX {data.Length} bytes");
-        return Task.CompletedTask;
     }
 
-    private async Task ReceiveLoopAsync(SerialPort port, CancellationToken ct)
+    private async Task ReceiveLoopAsync(NetworkStream stream, CancellationToken ct)
     {
         var buffer = new byte[4096];
 
@@ -154,7 +134,7 @@ public sealed class SerialTransport : IRadioTransport
             int n;
             try
             {
-                n = await port.BaseStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
+                n = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -174,22 +154,17 @@ public sealed class SerialTransport : IRadioTransport
             }
 
             if (n <= 0)
-                continue;
+                break;
 
             if (Volatile.Read(ref _isDisconnecting) != 0)
                 break;
 
             var payload = new byte[n];
             Buffer.BlockCopy(buffer, 0, payload, 0, n);
-
             BytesReceived?.Invoke(payload);
+            Log?.Invoke($"RX {n} bytes");
         }
     }
-
-    // Kept for safe explicit unsubscription during shutdown.
-    private void OnDataReceived(object sender, SerialDataReceivedEventArgs e) { }
-    private void OnErrorReceived(object sender, SerialErrorReceivedEventArgs e) { }
-    private void OnPinChanged(object sender, SerialPinChangedEventArgs e) { }
 
     public async ValueTask DisposeAsync()
     {
