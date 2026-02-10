@@ -11,47 +11,95 @@
         </Grid.RowDefinitions>
 
         <!-- Topp: tilkobling -->
-        <StackPanel Spacing="8">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="COM:" VerticalAlignment="Center" />
-                <ComboBox x:Name="PortCombo" Width="140" SelectionChanged="PortCombo_SelectionChanged"/>
-                <Button x:Name="ConnectButton"
-                        Content="Connect"
-                        Click="Connect_Click" />
-                <Button x:Name="RefreshPortsButton"
-                        Content="Refresh"
-                        Click="RefreshPorts_Click" />
-                <Button x:Name="DisconnectButton"
-                        Content="Disconnect"
-                        Click="Disconnect_Click" />
-                <TextBlock x:Name="StatusText" VerticalAlignment="Center" Opacity="0.8"/>
-            </StackPanel>
+        <Grid RowSpacing="8" ColumnSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="90"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="TCP/IP:" VerticalAlignment="Center" />
-                <TextBox x:Name="TcpHostBox" Width="180" PlaceholderText="Host/IP" Text="127.0.0.1"/>
-                <TextBox x:Name="TcpPortBox" Width="90" PlaceholderText="Port" Text="4403"/>
-                <Button x:Name="TcpConnectButton"
-                        Content="Connect"
-                        Click="TcpConnect_Click" />
-            </StackPanel>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="COM:" VerticalAlignment="Center" />
+            <ComboBox Grid.Row="0"
+                      Grid.Column="1"
+                      x:Name="PortCombo"
+                      HorizontalAlignment="Stretch"
+                      SelectionChanged="PortCombo_SelectionChanged"/>
+            <Button Grid.Row="0"
+                    Grid.Column="3"
+                    x:Name="ConnectButton"
+                    Content="Connect"
+                    Click="Connect_Click" />
+            <Button Grid.Row="0"
+                    Grid.Column="4"
+                    x:Name="RefreshPortsButton"
+                    Content="Refresh"
+                    Click="RefreshPorts_Click" />
+            <TextBlock Grid.Row="0"
+                       Grid.Column="7"
+                       x:Name="StatusText"
+                       VerticalAlignment="Center"
+                       Opacity="0.8"/>
 
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="Bluetooth:" VerticalAlignment="Center" />
-                <ComboBox x:Name="BluetoothCombo"
-                          Width="320"
-                          DisplayMemberPath="DisplayName"
-                          SelectionChanged="BluetoothCombo_SelectionChanged" />
-                <Button x:Name="BluetoothConnectButton"
-                        Content="Connect"
-                        Click="BluetoothConnect_Click" />
-                <Button x:Name="RefreshBluetoothButton"
-                        Content="Refresh"
-                        Click="RefreshBluetooth_Click" />
-                <Button Content="Save debug log"
-                        Click="SaveDebugLog_Click" />
-            </StackPanel>
-        </StackPanel>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="TCP/IP:" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1"
+                     Grid.Column="1"
+                     x:Name="TcpHostBox"
+                     HorizontalAlignment="Stretch"
+                     PlaceholderText="Host/IP"
+                     Text="127.0.0.1"/>
+            <TextBox Grid.Row="1"
+                     Grid.Column="2"
+                     x:Name="TcpPortBox"
+                     HorizontalAlignment="Stretch"
+                     PlaceholderText="Port"
+                     Text="4403"/>
+            <Button Grid.Row="1"
+                    Grid.Column="3"
+                    x:Name="TcpConnectButton"
+                    Content="Connect"
+                    Click="TcpConnect_Click" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Bluetooth:" VerticalAlignment="Center" />
+            <ComboBox Grid.Row="2"
+                      Grid.Column="1"
+                      x:Name="BluetoothCombo"
+                      HorizontalAlignment="Stretch"
+                      DisplayMemberPath="DisplayName"
+                      SelectionChanged="BluetoothCombo_SelectionChanged" />
+            <Button Grid.Row="2"
+                    Grid.Column="3"
+                    x:Name="BluetoothConnectButton"
+                    Content="Connect"
+                    Click="BluetoothConnect_Click" />
+            <Button Grid.Row="2"
+                    Grid.Column="4"
+                    x:Name="RefreshBluetoothButton"
+                    Content="Refresh"
+                    Click="RefreshBluetooth_Click" />
+            <Button Grid.Row="2"
+                    Grid.Column="5"
+                    Content="Save debug log"
+                    Click="SaveDebugLog_Click" />
+
+            <Button Grid.Row="0"
+                    Grid.RowSpan="3"
+                    Grid.Column="6"
+                    x:Name="DisconnectButton"
+                    Margin="16,0,0,0"
+                    VerticalAlignment="Center"
+                    Content="Disconnect"
+                    Click="Disconnect_Click" />
+        </Grid>
 
         <!-- Logg -->
         <ListView x:Name="LogList"
