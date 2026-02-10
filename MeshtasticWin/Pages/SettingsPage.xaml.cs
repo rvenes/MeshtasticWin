@@ -9,7 +9,6 @@ public sealed partial class SettingsPage : Page
         InitializeComponent();
         ShowPowerMetricsToggle.IsOn = AppState.ShowPowerMetricsTab;
         ShowDetectionSensorToggle.IsOn = AppState.ShowDetectionSensorLogTab;
-        WebViewDevToolsToggle.IsOn = AppState.EnableWebViewDevTools;
     }
 
     private void ShowPowerMetricsToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
@@ -20,10 +19,5 @@ public sealed partial class SettingsPage : Page
     private void ShowDetectionSensorToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
         AppState.ShowDetectionSensorLogTab = ShowDetectionSensorToggle.IsOn;
-    }
-
-    private void WebViewDevToolsToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
-    {
-        AppState.EnableWebViewDevTools = WebViewDevToolsToggle.IsOn;
     }
 }

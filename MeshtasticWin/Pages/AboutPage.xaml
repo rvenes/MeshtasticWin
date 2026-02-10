@@ -6,6 +6,7 @@
     <ScrollViewer Padding="16">
         <StackPanel Spacing="12" MaxWidth="900">
             <TextBlock Text="About" FontSize="20" FontWeight="SemiBold"/>
+            <TextBlock Text="Version: Beta 1.0" Opacity="0.9"/>
 
             <TextBlock TextWrapping="Wrap">
                 MeshtasticWin is a desktop app for connecting to Meshtastic radios and working with messages and nodes.
@@ -13,24 +14,26 @@
 
             <TextBlock Text="How to use" FontSize="16" FontWeight="SemiBold"/>
             <TextBlock TextWrapping="Wrap">
-                Use Connect to attach to a device over Serial via USB, then go to Messages and Nodes to interact with your network.
+                Use Connect to attach to a device over Serial (USB), TCP/IP, or Bluetooth LE, then go to Messages and Nodes to interact with your network.
                 Settings contains app options.
             </TextBlock>
 
             <TextBlock Text="Licensing" FontSize="16" FontWeight="SemiBold"/>
             <TextBlock TextWrapping="Wrap">
-                This program is licensed under the GNU GPL 3.0.
+                MeshtasticWin is free and open-source software licensed under GNU GPL 3.0.
             </TextBlock>
 
-            <TextBlock Text="Connectivity" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock Text="Donations (Optional)" FontSize="16" FontWeight="SemiBold"/>
             <TextBlock TextWrapping="Wrap">
-                It currently supports Serial via USB only. HTTP IP and Bluetooth support will be added later.
+                The program is free. Donations are optional and help improve features, stability, testing, and long-term support.
             </TextBlock>
-
-            <TextBlock Text="About me" FontSize="16" FontWeight="SemiBold"/>
-            <TextBlock TextWrapping="Wrap">
-                This is an open-source community project.
-            </TextBlock>
+            <HyperlinkButton Content="Open PayPal donation page"
+                             NavigateUri="https://www.paypal.com/donate/?business=VSSTWS8ETDPXW&amp;no_recurring=0&amp;item_name=MeshtasticWin+is+free+and+open+source+%28GPLv3%29.+Optional+donations+help+improve+features%2C+stability%2C+and+support.&amp;currency_code=USD"/>
+            <TextBlock Text="Scan QR code:" FontWeight="SemiBold"/>
+            <Image Source="ms-appx:///Assets/paypalqr.png"
+                   Width="220"
+                   Height="220"
+                   Stretch="Uniform"/>
         </StackPanel>
     </ScrollViewer>
 </Page>

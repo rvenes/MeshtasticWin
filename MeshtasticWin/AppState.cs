@@ -11,7 +11,6 @@ public static class AppState
 {
     public static ObservableCollection<NodeLive> Nodes { get; } = new();
     public static ObservableCollection<MessageLive> Messages { get; } = new();
-    public static bool EnableWebViewDevTools { get; set; }
     public static event Action? SettingsChanged;
 
     private static bool _showPowerMetricsTab;

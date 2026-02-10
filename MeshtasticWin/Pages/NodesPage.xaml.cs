@@ -50,7 +50,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private System.Threading.Tasks.Task? _mapInitializationTask;
     private bool _mapEventsAttached;
     private bool _mapConfigured;
-    private bool _mapResourceLoggingAttached;
     private string? _mapFolderPath;
     private Uri? _mapUri;
     private readonly HashSet<string> _enabledTrackNodeIds = new(StringComparer.OrdinalIgnoreCase);
@@ -477,23 +476,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _mapEventsAttached = true;
         }
 
-        if (!_mapResourceLoggingAttached)
-        {
-            try
-            {
-                wv.AddWebResourceRequestedFilter("https://appassets.local/*", CoreWebView2WebResourceContext.All);
-                wv.WebResourceRequested += CoreWebView2_WebResourceRequested;
-                _mapResourceLoggingAttached = true;
-            }
-            catch (Exception ex)
-            {
-                RadioClient.Instance.AddLogFromUiThread($"Map resource logging setup failed: {ex.Message}");
-            }
-        }
-
         var installPath = ResolveInstallPath();
         _mapFolderPath = Path.GetFullPath(Path.Combine(installPath, "Assets"));
-        RadioClient.Instance.AddLogFromUiThread($"Map assets path: {_mapFolderPath}");
 
         if (!Directory.Exists(_mapFolderPath))
         {
@@ -513,27 +497,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
 
         _mapUri = new Uri("https://appassets.local/Map/map.html");
-        RadioClient.Instance.AddLogFromUiThread($"Map navigation URI: {_mapUri}");
 
         try
         {
             _mapReady = false;
             wv.SetVirtualHostNameToFolderMapping("appassets.local", _mapFolderPath, CoreWebView2HostResourceAccessKind.Allow);
-            _ = InjectConsoleBridgeAsync(wv);
             MapView.Source = _mapUri;
-
-            if (AppState.EnableWebViewDevTools)
-            {
-                try
-                {
-                    wv.OpenDevToolsWindow();
-                    RadioClient.Instance.AddLogFromUiThread("Map DevTools opened.");
-                }
-                catch (Exception ex)
-                {
-                    RadioClient.Instance.AddLogFromUiThread($"Map DevTools failed: {ex.Message}");
-                }
-            }
         }
         catch (Exception ex)
         {
@@ -578,18 +547,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
             if (string.IsNullOrWhiteSpace(type)) return;
 
-            if (type == "console")
-            {
-                var level = root.TryGetProperty("level", out var levelEl) ? levelEl.GetString() : "log";
-                var message = root.TryGetProperty("message", out var messageEl) ? messageEl.GetString() : "";
-                RadioClient.Instance.AddLogFromUiThread($"Map console [{level}]: {message}");
-                return;
-            }
-
             if (type == "ready")
             {
                 _mapReady = true;
-                RadioClient.Instance.AddLogFromUiThread("Map ready message received.");
                 _ = PushAllNodesToMapAsync();
                 _ = PushSelectionToMapAsync();
                 _ = PushEnabledTracksToMapAsync();
@@ -636,27 +596,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         catch { }
     }
 
-    private void CoreWebView2_WebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
-    {
-        try
-        {
-            var uri = e.Request?.Uri ?? "";
-            if (uri.StartsWith("https://appassets.local/", StringComparison.OrdinalIgnoreCase))
-            {
-                RadioClient.Instance.AddLogFromUiThread($"Map resource requested: {uri}");
-            }
-        }
-        catch
-        {
-        }
-    }
-
     private void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         var uri = MapView.Source?.ToString() ?? MapView.CoreWebView2?.Source ?? "unknown";
         if (e.IsSuccess)
         {
-            RadioClient.Instance.AddLogFromUiThread($"Map navigation completed: {uri}");
             HideMapFallback();
             _ = MapView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
             return;
@@ -667,42 +611,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         ShowMapFallback($"Map failed to load: {e.WebErrorStatus}");
         _mapConfigured = false;
         _mapInitializationTask = null;
-    }
-
-    private static async System.Threading.Tasks.Task InjectConsoleBridgeAsync(CoreWebView2 webView)
-    {
-        const string script = """
-            (() => {
-                if (window.__meshtasticConsoleBridgeInstalled) {
-                    return;
-                }
-                window.__meshtasticConsoleBridgeInstalled = true;
-                const levels = ["log", "info", "warn", "error", "debug"];
-                levels.forEach(level => {
-                    const original = console[level];
-                    console[level] = (...args) => {
-                        try {
-                            const message = args.map(arg => {
-                                if (typeof arg === "string") return arg;
-                                try { return JSON.stringify(arg); } catch { return String(arg); }
-                            }).join(" ");
-                            chrome.webview.postMessage({ type: "console", level, message });
-                        } catch { }
-                        if (typeof original === "function") {
-                            original.apply(console, args);
-                        }
-                    };
-                });
-            })();
-            """;
-
-        try
-        {
-            await webView.AddScriptToExecuteOnDocumentCreatedAsync(script);
-        }
-        catch
-        {
-        }
     }
 
     private void ShowMapFallback(string message)
@@ -1187,29 +1095,6 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         await EnsureMapAsync();
         _ = MapView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
-        LogMapSizing();
-    }
-
-    private void LogMapSizing()
-    {
-        var mapWidth = MapView.ActualWidth;
-        var mapHeight = MapView.ActualHeight;
-        var parent = MapView.Parent as FrameworkElement;
-        var parentWidth = parent?.ActualWidth ?? 0;
-        var parentHeight = parent?.ActualHeight ?? 0;
-
-        RadioClient.Instance.AddLogFromUiThread(
-            $"Map WebView2 size: {mapWidth:0.##}x{mapHeight:0.##} (parent: {parentWidth:0.##}x{parentHeight:0.##})");
-
-        var mapTooSmallForVisibleParent =
-            (parentWidth > 1 && mapWidth <= 1) ||
-            (parentHeight > 1 && mapHeight <= 1);
-
-        if (mapTooSmallForVisibleParent)
-        {
-            RadioClient.Instance.AddLogFromUiThread(
-                $"Map WebView2 size warning: map={mapWidth:0.##}x{mapHeight:0.##}, parent={parentWidth:0.##}x{parentHeight:0.##}");
-        }
     }
 
     private void PositionLogList_SelectionChanged(object _, SelectionChangedEventArgs _1)
