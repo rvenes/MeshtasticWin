@@ -10,24 +10,63 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Topp: COM + knappar -->
-        <StackPanel Orientation="Horizontal" Spacing="12">
-            <TextBlock Text="COM:" VerticalAlignment="Center" />
-            <ComboBox x:Name="PortCombo" Width="140" SelectionChanged="PortCombo_SelectionChanged"/>
-            <Button x:Name="ConnectButton"
-        Content="Connect"
-        Click="Connect_Click" />
-            <Button x:Name="RefreshPortsButton"
-                    Content="Refresh"
-                    Click="RefreshPorts_Click" />
+        <!-- Topp: tilkobling -->
+        <StackPanel Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="COM:" VerticalAlignment="Center" />
+                <ComboBox x:Name="PortCombo" Width="140" SelectionChanged="PortCombo_SelectionChanged"/>
+                <Button x:Name="ConnectButton"
+                        Content="Connect"
+                        Click="Connect_Click" />
+                <Button x:Name="RefreshPortsButton"
+                        Content="Refresh"
+                        Click="RefreshPorts_Click" />
+                <Button x:Name="DisconnectButton"
+                        Content="Disconnect"
+                        Click="Disconnect_Click" />
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center" Opacity="0.8"/>
+            </StackPanel>
 
-            <Button x:Name="DisconnectButton"
-        Content="Disconnect"
-        Click="Disconnect_Click" />
-            <TextBlock x:Name="StatusText" VerticalAlignment="Center" Opacity="0.8"/>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="TCP/IP:" VerticalAlignment="Center" />
+                <TextBox x:Name="TcpHostBox" Width="180" PlaceholderText="Host/IP" Text="127.0.0.1"/>
+                <TextBox x:Name="TcpPortBox" Width="90" PlaceholderText="Port" Text="4403"/>
+                <Button x:Name="TcpConnectButton"
+                        Content="Connect"
+                        Click="TcpConnect_Click" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Bluetooth:" VerticalAlignment="Center" />
+                <ComboBox x:Name="BluetoothCombo"
+                          Width="320"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="BluetoothCombo_SelectionChanged" />
+                <Button x:Name="BluetoothConnectButton"
+                        Content="Connect"
+                        Click="BluetoothConnect_Click" />
+                <Button x:Name="RefreshBluetoothButton"
+                        Content="Refresh"
+                        Click="RefreshBluetooth_Click" />
+                <Button Content="Save debug log"
+                        Click="SaveDebugLog_Click" />
+            </StackPanel>
         </StackPanel>
 
         <!-- Logg -->
-        <ListView x:Name="LogList" Grid.Row="1" Margin="0,12,0,0"/>
+        <ListView x:Name="LogList"
+                  Grid.Row="1"
+                  Margin="0,12,0,0"
+                  RightTapped="LogList_RightTapped">
+            <ListView.ContextFlyout>
+                <MenuFlyout Opening="LogListFlyout_Opening">
+                    <MenuFlyoutItem x:Name="CopyLogMenuItem"
+                                    Text="Copy"
+                                    Click="CopyLogMenuItem_Click" />
+                    <MenuFlyoutItem Text="Copy all"
+                                    Click="CopyAllLogMenuItem_Click" />
+                </MenuFlyout>
+            </ListView.ContextFlyout>
+        </ListView>
     </Grid>
 </Page>

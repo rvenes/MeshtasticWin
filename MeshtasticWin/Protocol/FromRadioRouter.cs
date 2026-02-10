@@ -51,6 +51,37 @@ public static class FromRadioRouter
                 return false;
             }
 
+            var variantCaseName = TryGetFromRadioVariantCaseName(fromRadioObj);
+            if (!string.IsNullOrWhiteSpace(variantCaseName) && !IsNoneVariantCase(variantCaseName))
+            {
+                var normalizedCase = NormalizeToken(variantCaseName);
+                TryGetFromRadioVariantObject(fromRadioObj, variantCaseName, out var variantObj);
+
+                if (normalizedCase == "packet" && variantObj is not null)
+                {
+                    summary = "Packet";
+                    runOnUi(() => ApplyPacketObject(variantObj, logToUi));
+                    return true;
+                }
+
+                if (normalizedCase == "nodeinfo" && variantObj is not null)
+                {
+                    summary = "NodeInfo";
+                    runOnUi(() => ApplyNodeInfoObject(variantObj, logToUi));
+                    return true;
+                }
+
+                if (normalizedCase == "myinfo" && variantObj is not null)
+                {
+                    summary = "MyInfo";
+                    runOnUi(() => ApplyMyInfoObject(variantObj));
+                    return true;
+                }
+
+                summary = BuildReadableVariantSummary(variantCaseName, variantObj);
+                return true;
+            }
+
             var packetProp = fromRadioType.GetProperty("Packet", BindingFlags.Public | BindingFlags.Instance);
             var packetObj = packetProp?.GetValue(fromRadioObj);
             if (packetObj is not null)
@@ -86,6 +117,9 @@ public static class FromRadioRouter
     {
         if (!TryGetUInt(packetObj, "From", out var fromNodeNum))
             return;
+
+        uint packetId = 0;
+        TryGetUInt(packetObj, "Id", out packetId);
 
         uint toNodeNum = 0xFFFFFFFF;
         TryGetUInt(packetObj, "To", out toNodeNum);
@@ -170,6 +204,9 @@ public static class FromRadioRouter
         if (portNum != TextMessagePortNum)
             return;
 
+        if (fromNodeNum == 0)
+            return;
+
         var payloadBytes = TryGetPayloadBytes(decodedObj);
         if (payloadBytes is null || payloadBytes.Length == 0)
             return;
@@ -187,10 +224,54 @@ public static class FromRadioRouter
         if (string.IsNullOrWhiteSpace(text))
             return;
 
+        if (packetId != 0)
+        {
+            var existingByPacket = MeshtasticWin.AppState.Messages.FirstOrDefault(m => !m.IsMine && m.PacketId == packetId);
+            if (existingByPacket is not null)
+            {
+                var existingTo = existingByPacket.ToIdHex ?? "";
+                if (string.Equals(existingTo, toIdHex, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                if (string.Equals(existingTo, "0xffffffff", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(toIdHex, "0xffffffff", StringComparison.OrdinalIgnoreCase))
+                {
+                    MeshtasticWin.AppState.Messages.Remove(existingByPacket);
+                }
+                else
+                {
+                    return;
+                }
+            }
+        }
+
+        if (MeshtasticWin.AppState.Messages.Any(m =>
+                !m.IsMine &&
+                string.Equals(m.FromIdHex, fromIdHex, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(m.ToIdHex, toIdHex, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(m.Text, text, StringComparison.Ordinal) &&
+                (DateTime.UtcNow - m.WhenUtc).TotalMinutes <= 10))
+        {
+            return;
+        }
+
         var toNode = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => string.Equals(n.IdHex, toIdHex, StringComparison.OrdinalIgnoreCase));
         var toName = (toNodeNum == 0xFFFFFFFF) ? "Primary" : (toNode?.Name ?? toIdHex);
-
-        var msg = MessageLive.CreateIncoming(fromIdHex, fromNode.Name, toIdHex, toName, text);
+        var msg = new MessageLive
+        {
+            FromIdHex = fromIdHex,
+            FromName = fromNode.Name,
+            ToIdHex = toIdHex,
+            ToName = toName,
+            Text = text,
+            When = DateTime.Now.ToString("HH:mm:ss"),
+            WhenUtc = DateTime.UtcNow,
+            IsMine = false,
+            PacketId = packetId,
+            IsHeard = false,
+            IsDelivered = false,
+            DmTargetNodeNum = 0
+        };
 
         // Update unread indicators
         MeshtasticWin.AppState.NotifyIncomingMessage(msg.IsDirect ? fromIdHex : null, msg.WhenUtc);
@@ -212,8 +293,6 @@ public static class FromRadioRouter
 
         var idHex = $"0x{nodeNum:x8}";
         var node = EnsureNode(idHex, nodeNum);
-        if (RadioClient.Instance.IsConnected && string.IsNullOrWhiteSpace(MeshtasticWin.AppState.ConnectedNodeIdHex))
-            MeshtasticWin.AppState.SetConnectedNodeIdHex(idHex);
 
         // User
         var userObj = nodeInfoObj.GetType().GetProperty("User", BindingFlags.Public | BindingFlags.Instance)?.GetValue(nodeInfoObj);
@@ -229,6 +308,16 @@ public static class FromRadioRouter
                 node.ShortName = shortName;
         }
 
+        if (RadioClient.Instance.IsConnected)
+        {
+            var connectedId = MeshtasticWin.AppState.ConnectedNodeIdHex;
+            if (string.IsNullOrWhiteSpace(connectedId) ||
+                string.Equals(connectedId, idHex, StringComparison.OrdinalIgnoreCase))
+            {
+                MeshtasticWin.AppState.SetConnectedNodeIdHex(idHex);
+            }
+        }
+
         // GPS bootstrap frå NodeInfo om den finst
         object? posObj =
             nodeInfoObj.GetType().GetProperty("Position", BindingFlags.Public | BindingFlags.Instance)?.GetValue(nodeInfoObj) ??
@@ -241,6 +330,17 @@ public static class FromRadioRouter
         }
 
         node.Touch();
+    }
+
+    private static void ApplyMyInfoObject(object myInfoObj)
+    {
+        if (!TryGetUInt(myInfoObj, "MyNodeNum", out var nodeNum) || nodeNum == 0)
+            return;
+
+        var idHex = $"0x{nodeNum:x8}";
+        var node = EnsureNode(idHex, nodeNum);
+        node.Touch();
+        MeshtasticWin.AppState.SetConnectedNodeIdHex(idHex);
     }
 
     private static NodeLive EnsureNode(string idHex, uint nodeNum)
@@ -910,5 +1010,115 @@ public static class FromRadioRouter
             })
             .SelectMany(t => t)
             .FirstOrDefault(t => t.IsClass && t.Name == typeName);
+    }
+
+    private static string? TryGetFromRadioVariantCaseName(object fromRadioObj)
+    {
+        var t = fromRadioObj.GetType();
+        var prop =
+            t.GetProperty("PayloadVariantCase", BindingFlags.Public | BindingFlags.Instance) ??
+            t.GetProperty("PayloadCase", BindingFlags.Public | BindingFlags.Instance) ??
+            t.GetProperty("VariantCase", BindingFlags.Public | BindingFlags.Instance);
+
+        return prop?.GetValue(fromRadioObj)?.ToString();
+    }
+
+    private static bool TryGetFromRadioVariantObject(object fromRadioObj, string variantCaseName, out object? value)
+    {
+        value = null;
+        var caseKey = NormalizeToken(variantCaseName);
+        if (string.IsNullOrWhiteSpace(caseKey))
+            return false;
+
+        var props = fromRadioObj.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        foreach (var p in props)
+        {
+            if (p.GetIndexParameters().Length != 0)
+                continue;
+
+            var key = NormalizeToken(p.Name);
+            if (key != caseKey)
+                continue;
+
+            value = p.GetValue(fromRadioObj);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsNoneVariantCase(string variantCaseName)
+    {
+        var key = NormalizeToken(variantCaseName);
+        return key is "none" or "payloadvariantnotset" or "notset" or "";
+    }
+
+    private static string BuildReadableVariantSummary(string variantCaseName, object? variantObj)
+    {
+        var key = NormalizeToken(variantCaseName);
+        var (prefix, label) = key switch
+        {
+            "myinfo" => ("MYINFO", "MyInfo"),
+            "config" => ("CFG", "Config"),
+            "logrecord" => ("LOG", "LogRecord"),
+            "configcompleteid" => ("CFGDONE", "ConfigComplete"),
+            "rebooted" => ("REBOOT", "Rebooted"),
+            "moduleconfig" => ("MODCFG", "ModuleConfig"),
+            "channel" => ("CHAN", "Channel"),
+            "queuestatus" => ("QUEUE", "QueueStatus"),
+            "xmodempacket" => ("XMODEM", "XModem"),
+            "metadata" => ("META", "DeviceMetadata"),
+            "mqttclientproxymessage" => ("MQTT", "MqttClientProxy"),
+            "fileinfo" => ("FILE", "FileInfo"),
+            "clientnotification" => ("NOTIFY", "ClientNotification"),
+            "deviceuiconfig" => ("UI", "DeviceUiConfig"),
+            _ => ("OTHER", variantCaseName)
+        };
+
+        if (variantObj is null)
+            return $"{prefix}: {label}";
+
+        if (variantObj is bool b)
+            return $"{prefix}: {label}: {b}";
+
+        if (variantObj is int i)
+            return $"{prefix}: {label}: {i}";
+
+        if (variantObj is uint u)
+            return $"{prefix}: {label}: {u}";
+
+        if (variantObj is long l)
+            return $"{prefix}: {label}: {l}";
+
+        if (variantObj is ulong ul)
+            return $"{prefix}: {label}: {ul}";
+
+        if (key == "logrecord")
+        {
+            var level = "";
+            var message = "";
+            if (TryGetObj(variantObj, "Level", out var levelObj) && levelObj is not null)
+                level = levelObj.ToString() ?? "";
+            if (TryGetObj(variantObj, "Message", out var messageObj) && messageObj is not null)
+                message = messageObj.ToString() ?? "";
+
+            var text = string.IsNullOrWhiteSpace(level) ? message : $"{level}: {message}";
+            return string.IsNullOrWhiteSpace(text) ? $"{prefix}: LogRecord" : $"{prefix}: LogRecord: {text}";
+        }
+
+        var formatted = FormatProtoSingleLine(variantObj);
+        if (string.IsNullOrWhiteSpace(formatted))
+            return $"{prefix}: {label}";
+
+        return $"{prefix}: {label}: {formatted}";
+    }
+
+    private static string NormalizeToken(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var chars = text.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray();
+        return new string(chars);
     }
 }

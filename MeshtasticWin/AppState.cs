@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Linq;
 using MeshtasticWin.Models;
+using MeshtasticWin.Services;
 
 namespace MeshtasticWin;
 
@@ -20,9 +22,26 @@ public static class AppState
             idHex = null;
 
         if (string.Equals(ConnectedNodeIdHex, idHex, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(idHex))
+            {
+                var currentName = Nodes.FirstOrDefault(n => string.Equals(n.IdHex, idHex, StringComparison.OrdinalIgnoreCase))?.Name;
+                AppDataPaths.SetActiveNodeScope(idHex, currentName);
+                RadioClient.Instance.RotateLiveLogForCurrentScope();
+            }
             return;
+        }
 
         ConnectedNodeIdHex = idHex;
+
+        // Keep logs separated per connected node.
+        if (!string.IsNullOrWhiteSpace(idHex))
+        {
+            var nodeName = Nodes.FirstOrDefault(n => string.Equals(n.IdHex, idHex, StringComparison.OrdinalIgnoreCase))?.Name;
+            AppDataPaths.SetActiveNodeScope(idHex, nodeName);
+            RadioClient.Instance.RotateLiveLogForCurrentScope();
+        }
+
         ConnectedNodeChanged?.Invoke();
     }
 

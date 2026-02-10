@@ -14,6 +14,8 @@ public static class ToRadioFactory
 
     private static PropertyInfo? _toRadioPacketProp;
     private static PropertyInfo? _toRadioWantConfigIdProp;
+    private static PropertyInfo? _toRadioDisconnectProp;
+    private static PropertyInfo? _toRadioHeartbeatProp;
 
     private static PropertyInfo? _packetToProp;
     private static PropertyInfo? _packetDecodedProp;
@@ -26,6 +28,7 @@ public static class ToRadioFactory
     private static PropertyInfo? _decodedPayloadProp;
     private static PropertyInfo? _decodedWantResponseProp;
     private static PropertyInfo? _decodedDestProp;
+    private static PropertyInfo? _heartbeatNonceProp;
 
     public static IMessage CreateHelloRequest(uint wantConfigId = 1u)
     {
@@ -40,6 +43,47 @@ public static class ToRadioFactory
             throw new InvalidOperationException("ToRadio.WantConfigId property not found");
 
         _toRadioWantConfigIdProp.SetValue(msg, wantConfigId);
+        return msg;
+    }
+
+    public static IMessage CreateDisconnectNotice()
+    {
+        EnsureCached();
+
+        if (_toRadioType is null)
+            throw new InvalidOperationException("ToRadio type not found");
+
+        var msg = (IMessage)Activator.CreateInstance(_toRadioType)!;
+
+        if (_toRadioDisconnectProp is null)
+            throw new InvalidOperationException("ToRadio.Disconnect property not found");
+
+        _toRadioDisconnectProp.SetValue(msg, true);
+        return msg;
+    }
+
+    public static IMessage CreateHeartbeat(uint nonce)
+    {
+        EnsureCached();
+
+        if (_toRadioType is null)
+            throw new InvalidOperationException("ToRadio type not found");
+
+        if (_toRadioHeartbeatProp is null)
+            throw new InvalidOperationException("ToRadio.Heartbeat property not found");
+
+        var heartbeatType = _toRadioHeartbeatProp.PropertyType;
+        var heartbeatObj = Activator.CreateInstance(heartbeatType)
+            ?? throw new InvalidOperationException("Heartbeat type could not be created");
+
+        var nonceProp = _heartbeatNonceProp ?? heartbeatType.GetProperty("Nonce", BindingFlags.Public | BindingFlags.Instance);
+        if (nonceProp is null)
+            throw new InvalidOperationException("Heartbeat.Nonce property not found");
+
+        nonceProp.SetValue(heartbeatObj, nonce);
+
+        var msg = (IMessage)Activator.CreateInstance(_toRadioType)!;
+        _toRadioHeartbeatProp.SetValue(msg, heartbeatObj);
         return msg;
     }
 
@@ -200,6 +244,12 @@ public static class ToRadioFactory
         _toRadioWantConfigIdProp =
             _toRadioType.GetProperty("WantConfigId", BindingFlags.Public | BindingFlags.Instance);
 
+        _toRadioDisconnectProp =
+            _toRadioType.GetProperty("Disconnect", BindingFlags.Public | BindingFlags.Instance);
+
+        _toRadioHeartbeatProp =
+            _toRadioType.GetProperty("Heartbeat", BindingFlags.Public | BindingFlags.Instance);
+
         _toRadioPacketProp =
             _toRadioType.GetProperty("Packet", BindingFlags.Public | BindingFlags.Instance);
 
@@ -236,6 +286,13 @@ public static class ToRadioFactory
 
             _decodedDestProp =
                 _decodedType.GetProperty("Dest", BindingFlags.Public | BindingFlags.Instance);
+        }
+
+        if (_toRadioHeartbeatProp is not null)
+        {
+            var heartbeatType = _toRadioHeartbeatProp.PropertyType;
+            _heartbeatNonceProp =
+                heartbeatType.GetProperty("Nonce", BindingFlags.Public | BindingFlags.Instance);
         }
     }
 

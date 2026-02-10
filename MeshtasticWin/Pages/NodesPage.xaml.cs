@@ -59,13 +59,16 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastViewedByNode = new();
     private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastAppendedByNode = new();
     private readonly Dictionary<string, HashSet<LogKind>> _pendingLogIndicatorsByNode = new();
+    private string _activeLogScope = AppDataPaths.ActiveNodeScope;
 
     private bool _deviceMetricsTabIndicator;
     private bool _positionTabIndicator;
     private bool _traceRouteTabIndicator;
+    private bool _environmentMetricsTabIndicator;
     private bool _powerMetricsTabIndicator;
     private bool _detectionSensorTabIndicator;
 
+    private string _environmentMetricsLogText = "No log entries yet.";
     private string _powerMetricsLogText = "No log entries yet.";
     private string _detectionSensorLogText = "No log entries yet.";
 
@@ -214,6 +217,17 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         }
     }
 
+    public string EnvironmentMetricsLogText
+    {
+        get => _environmentMetricsLogText;
+        private set
+        {
+            if (_environmentMetricsLogText == value) return;
+            _environmentMetricsLogText = value;
+            OnChanged(nameof(EnvironmentMetricsLogText));
+        }
+    }
+
     public string DetectionSensorLogText
     {
         get => _detectionSensorLogText;
@@ -230,6 +244,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public Visibility DeviceMetricsTabIndicatorVisibility => _deviceMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PositionTabIndicatorVisibility => _positionTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility TraceRouteTabIndicatorVisibility => _traceRouteTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EnvironmentMetricsTabIndicatorVisibility => _environmentMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PowerMetricsTabIndicatorVisibility => _powerMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DetectionSensorTabIndicatorVisibility => _detectionSensorTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility TraceRouteEmptyVisibility => TraceRouteLogEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -934,6 +949,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private void ConnectedNodeChanged()
     {
+        var scope = AppDataPaths.ActiveNodeScope;
+        if (!string.Equals(_activeLogScope, scope, StringComparison.OrdinalIgnoreCase))
+        {
+            _activeLogScope = scope;
+            _lastLogWriteByNode.Clear();
+            _lastViewedByNode.Clear();
+            _lastAppendedByNode.Clear();
+            _pendingLogIndicatorsByNode.Clear();
+            SeedLogWriteTimes();
+            RefreshSelectedNodeLogs();
+        }
+
         RebuildVisibleNodes();
         ApplyNodeSorting();
     }
@@ -980,7 +1007,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 lastHeard = n.LastHeard,
                 lat = n.Latitude,
                 lon = n.Longitude,
-                hasPos = n.HasPosition,
+                hasPos = n.HasPosition && IsValidMapPosition(n.Latitude, n.Longitude),
                 lastPosLocal = n.LastPositionText
             })
             .ToArray();
@@ -1025,6 +1052,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         _enabledTrackNodeIds.Add(nodeId);
         var points = GpsArchive.ReadAll(Selected.IdHex, maxPoints: 5000)
             .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
+            .Where(p => IsValidMapPosition(p.Lat, p.Lon))
             .OrderBy(p => p.TsUtc)
             .Select(p => new GeoPoint(p.Lat, p.Lon))
             .ToArray();
@@ -1099,7 +1127,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         RadioClient.Instance.AddLogFromUiThread(
             $"Map WebView2 size: {mapWidth:0.##}x{mapHeight:0.##} (parent: {parentWidth:0.##}x{parentHeight:0.##})");
 
-        if (mapWidth <= 1 || mapHeight <= 1 || parentWidth <= 1 || parentHeight <= 1)
+        var mapTooSmallForVisibleParent =
+            (parentWidth > 1 && mapWidth <= 1) ||
+            (parentHeight > 1 && mapHeight <= 1);
+
+        if (mapTooSmallForVisibleParent)
         {
             RadioClient.Instance.AddLogFromUiThread(
                 $"Map WebView2 size warning: map={mapWidth:0.##}x{mapHeight:0.##}, parent={parentWidth:0.##}x{parentHeight:0.##}");
@@ -1474,6 +1506,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         RefreshDeviceMetricsSamples();
         RefreshTraceRouteEntries();
+        EnvironmentMetricsLogText = ReadLogText(LogKind.EnvironmentMetrics);
         PowerMetricsLogText = ReadLogText(LogKind.PowerMetrics);
         DetectionSensorLogText = ReadLogText(LogKind.DetectionSensor);
 
@@ -1570,6 +1603,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         SetTabIndicator(LogKind.DeviceMetrics, false);
         SetTabIndicator(LogKind.Position, false);
         SetTabIndicator(LogKind.TraceRoute, false);
+        SetTabIndicator(LogKind.EnvironmentMetrics, false);
         SetTabIndicator(LogKind.PowerMetrics, false);
         SetTabIndicator(LogKind.DetectionSensor, false);
     }
@@ -1592,6 +1626,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 if (_traceRouteTabIndicator == value) return;
                 _traceRouteTabIndicator = value;
                 OnChanged(nameof(TraceRouteTabIndicatorVisibility));
+                break;
+            case LogKind.EnvironmentMetrics:
+                if (_environmentMetricsTabIndicator == value) return;
+                _environmentMetricsTabIndicator = value;
+                OnChanged(nameof(EnvironmentMetricsTabIndicatorVisibility));
                 break;
             case LogKind.PowerMetrics:
                 if (_powerMetricsTabIndicator == value) return;
@@ -1847,6 +1886,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             LogKind.DeviceMetrics => Path.Combine(baseDir, "device_metrics", $"0x{safe}.log"),
             LogKind.TraceRoute => Path.Combine(baseDir, "traceroute", $"0x{safe}.log"),
+            LogKind.EnvironmentMetrics => Path.Combine(baseDir, "environment_metrics", $"0x{safe}.log"),
             LogKind.PowerMetrics => Path.Combine(baseDir, "power_metrics", $"0x{safe}.log"),
             LogKind.DetectionSensor => Path.Combine(baseDir, "detection_sensor", $"0x{safe}.log"),
             LogKind.Position => Path.Combine(baseDir, "gps", $"0x{safe}.log"),
@@ -1920,8 +1960,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             1 => LogKind.DeviceMetrics,
             2 => LogKind.Position,
             3 => LogKind.TraceRoute,
-            4 => LogKind.PowerMetrics,
-            5 => LogKind.DetectionSensor,
+            4 => LogKind.EnvironmentMetrics,
+            5 => LogKind.PowerMetrics,
+            6 => LogKind.DetectionSensor,
             _ => null
         };
 
@@ -2062,6 +2103,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             var points = GpsArchive.ReadAll(nodeId, maxPoints: 5000)
                 .Where(p => !string.Equals(p.Src, "nodeinfo_bootstrap", StringComparison.OrdinalIgnoreCase))
+                .Where(p => IsValidMapPosition(p.Lat, p.Lon))
                 .OrderBy(p => p.TsUtc)
                 .Select(p => new GeoPoint(p.Lat, p.Lon))
                 .ToArray();
@@ -2078,6 +2120,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     {
         if (!_mapReady || MapView.CoreWebView2 is null) return;
         if (!node.HasPosition) return;
+        if (!IsValidMapPosition(node.Latitude, node.Longitude)) return;
         var nodeId = NormalizeNodeId(node.IdHex);
         if (!_enabledTrackNodeIds.Contains(nodeId)) return;
 
@@ -2269,12 +2312,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         var hasForward = parsed.Route.Count > 0;
         var hasBack = parsed.RouteBack.Count > 0;
+        var hasBackViaSnrOnly = !hasBack &&
+                                isActive &&
+                                parsed.SnrBack.Count > 0 &&
+                                parsed.FromNode.HasValue &&
+                                parsed.ToNode.HasValue;
         var treatBackAsForward = !hasForward && hasBack &&
                                  !string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase);
         var effectiveForward = hasForward
             || treatBackAsForward
             || (isActive && !hasForward && !hasBack && parsed.FromNode.HasValue && parsed.ToNode.HasValue);
-        var showBack = hasBack && (isActive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase))
+        var showBack = (hasBack || hasBackViaSnrOnly) &&
+                       (isActive || string.Equals(parsed.Variant, "route_reply", StringComparison.OrdinalIgnoreCase))
             && !(treatBackAsForward && !hasForward);
 
         var hopPath = effectiveForward
@@ -2314,12 +2363,16 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         string? backHeader = null;
         string? backLine = null;
-        if (showBack && parsed.RouteBack.Count > 0)
+        var backRoute = parsed.RouteBack;
+        if (showBack && !hasBack && hasBackViaSnrOnly)
+            backRoute = new List<uint> { parsed.ToNode!.Value, parsed.FromNode!.Value };
+
+        if (showBack && backRoute.Count > 0)
         {
-            var backFromText = ResolveNodeIdentityDetailed(parsed.ToNode ?? parsed.RouteBack[0]);
-            var backToText = ResolveNodeIdentityDetailed(parsed.FromNode ?? parsed.RouteBack[^1]);
-            backHeader = $"Route Back: {backFromText} -> {backToText} | Hops: {parsed.RouteBack.Count}";
-            var backPath = string.Join(" -> ", parsed.RouteBack.Select(ResolveHopLabel));
+            var backFromText = ResolveNodeIdentityDetailed(parsed.ToNode ?? backRoute[0]);
+            var backToText = ResolveNodeIdentityDetailed(parsed.FromNode ?? backRoute[^1]);
+            backHeader = $"Route Back: {backFromText} -> {backToText} | Hops: {backRoute.Count}";
+            var backPath = string.Join(" -> ", backRoute.Select(ResolveHopLabel));
             var backMetrics = BuildBackMetrics(parsed);
             backLine = $"Path Back: {backPath}";
             if (!string.IsNullOrWhiteSpace(backMetrics))
@@ -2334,15 +2387,15 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             : "No forward route recorded";
         var overlayHeader = $"{tag} {tsText} | {fromText} -> {toText} | Hops: {hopPath.Count}";
         var overlayRoute = $"Route: {forwardHops}";
-        var overlayBack = showBack && parsed.RouteBack.Count > 0
-            ? $"Route Back: {string.Join(" -> ", parsed.RouteBack.Select(ResolveHopLabel))}"
+        var overlayBack = showBack && backRoute.Count > 0
+            ? $"Route Back: {string.Join(" -> ", backRoute.Select(ResolveHopLabel))}"
             : null;
         var overlayMetrics = BuildOverlayMetrics(parsed, effectiveForward, showBack);
 
         var forwardRouteForMap = hasForward ? parsed.Route : (treatBackAsForward ? parsed.RouteBack : parsed.Route);
         var forwardSnrForMap = hasForward ? parsed.SnrTowards : (treatBackAsForward ? parsed.SnrBack : parsed.SnrTowards);
         var (forwardPoints, forwardQualities) = BuildRouteMapPoints(forwardRouteForMap, parsed.FromNode, parsed.ToNode, forwardSnrForMap);
-        var (backPoints, backQualities) = BuildRouteMapPoints(parsed.RouteBack, parsed.ToNode, parsed.FromNode, parsed.SnrBack);
+        var (backPoints, backQualities) = BuildRouteMapPoints(backRoute, parsed.ToNode, parsed.FromNode, parsed.SnrBack);
         var canViewRoute = forwardPoints.Count >= 2 || backPoints.Count >= 2;
 
         return new TraceRouteLogEntry(
@@ -2533,56 +2586,60 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var tokens = (summary ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var currentLabel = "";
 
-        foreach (var token in tokens)
+        foreach (var rawToken in tokens)
         {
-            if (token.EndsWith(':'))
+            var token = NormalizeTraceToken(rawToken);
+            if (string.IsNullOrWhiteSpace(token))
+                continue;
+
+            if (token.EndsWith(":", StringComparison.Ordinal))
             {
-                currentLabel = token;
+                currentLabel = NormalizeTraceLabel(token);
                 continue;
             }
 
             switch (currentLabel)
             {
-                case "route:":
-                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var routeNum))
+                case "route":
+                    if (TryParseUIntToken(token, out var routeNum))
                         route.Add(routeNum);
                     break;
-                case "snr_towards:":
-                    if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrTo))
+                case "snrtowards":
+                    if (TryParseIntToken(token, out var snrTo))
                         snrTowards.Add(snrTo);
                     break;
-                case "route_back:":
-                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var routeBackNum))
+                case "routeback":
+                    if (TryParseUIntToken(token, out var routeBackNum))
                         routeBack.Add(routeBackNum);
                     break;
-                case "snr_back:":
-                    if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var snrBk))
+                case "snrback":
+                    if (TryParseIntToken(token, out var snrBk))
                         snrBack.Add(snrBk);
                     break;
-                case "rx_snr:":
-                    if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var rxSnrValue))
+                case "rxsnr":
+                    if (TryParseDoubleToken(token, out var rxSnrValue))
                         rxSnr = rxSnrValue;
                     break;
-                case "rx_rssi:":
-                    if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var rxRssiValue))
+                case "rxrssi":
+                    if (TryParseDoubleToken(token, out var rxRssiValue))
                         rxRssi = rxRssiValue;
                     break;
-                case "from:":
-                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fromValue))
+                case "from":
+                    if (TryParseUIntToken(token, out var fromValue))
                         fromNode = fromValue;
                     break;
-                case "to:":
-                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var toValue))
+                case "to":
+                    if (TryParseUIntToken(token, out var toValue))
                         toNode = toValue;
                     break;
-                case "channel:":
-                    if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var channelValue))
+                case "channel":
+                    if (TryParseUIntToken(token, out var channelValue))
                         channel = channelValue;
                     break;
-                case "variant:":
+                case "variant":
                     variant = token;
                     break;
-                case "passive:":
+                case "passive":
                     if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase) ||
                         token == "1")
@@ -2590,7 +2647,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                         isPassive = true;
                     }
                     break;
-                case "active:":
+                case "active":
                     if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase) ||
                         token == "1")
@@ -2598,7 +2655,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                         isActive = true;
                     }
                     break;
-                case "no_response:":
+                case "noresponse":
                     if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase) ||
                         token == "1")
@@ -2612,11 +2669,71 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         return new TraceRouteParsed(route, snrTowards, routeBack, snrBack, rxSnr, rxRssi, fromNode, toNode, channel, variant, isPassive, isActive, isNoResponse);
     }
 
+    private static string NormalizeTraceToken(string token)
+    {
+        return (token ?? "")
+            .Trim()
+            .TrimStart('{', '[')
+            .TrimEnd('}', ']', ',')
+            .Trim('"');
+    }
+
+    private static string NormalizeTraceLabel(string labelToken)
+    {
+        var label = labelToken;
+        if (label.EndsWith(":", StringComparison.Ordinal))
+            label = label[..^1];
+
+        label = label.Trim().Trim('"').Replace("_", "", StringComparison.Ordinal).ToLowerInvariant();
+        return label;
+    }
+
+    private static bool TryParseUIntToken(string token, out uint value)
+    {
+        var text = token.Trim();
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return uint.TryParse(text[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+
+        return uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryParseIntToken(string token, out int value)
+    {
+        var text = token.Trim();
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            return true;
+
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(text[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hexValue))
+        {
+            value = hexValue;
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static bool TryParseDoubleToken(string token, out double value)
+        => double.TryParse(token.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
     private static string FormatSnrValue(int value)
         => FormatSnrValue((double)value);
 
     private static string FormatSnrValue(double value)
         => value.ToString("0.0", CultureInfo.InvariantCulture);
+
+    private static bool IsValidMapPosition(double lat, double lon)
+    {
+        if (double.IsNaN(lat) || double.IsInfinity(lat) ||
+            double.IsNaN(lon) || double.IsInfinity(lon))
+            return false;
+
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180)
+            return false;
+
+        return !(Math.Abs(lat) < 0.000001 && Math.Abs(lon) < 0.000001);
+    }
 
     private static bool TryGetLogKind(object sender, out LogKind kind)
     {
@@ -2638,6 +2755,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             LogKind.DeviceMetrics => Path.Combine(baseDir, "device_metrics"),
             LogKind.TraceRoute => Path.Combine(baseDir, "traceroute"),
+            LogKind.EnvironmentMetrics => Path.Combine(baseDir, "environment_metrics"),
             LogKind.PowerMetrics => Path.Combine(baseDir, "power_metrics"),
             LogKind.DetectionSensor => Path.Combine(baseDir, "detection_sensor"),
             LogKind.Position => AppDataPaths.GpsPath,
@@ -2656,6 +2774,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 await DeleteDeviceMetricsOlderAsync();
                 break;
             case LogKind.TraceRoute:
+            case LogKind.EnvironmentMetrics:
             case LogKind.PowerMetrics:
             case LogKind.DetectionSensor:
                 await DeleteTextLogOlderAsync(kind);
@@ -2674,6 +2793,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                 DeleteDeviceMetricsAll();
                 break;
             case LogKind.TraceRoute:
+            case LogKind.EnvironmentMetrics:
             case LogKind.PowerMetrics:
             case LogKind.DetectionSensor:
                 DeleteTextLogAll(kind);
@@ -2888,6 +3008,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         DeviceMetrics,
         Position,
         TraceRoute,
+        EnvironmentMetrics,
         PowerMetrics,
         DetectionSensor
     }
@@ -2897,6 +3018,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         LogKind.DeviceMetrics,
         LogKind.Position,
         LogKind.TraceRoute,
+        LogKind.EnvironmentMetrics,
         LogKind.PowerMetrics,
         LogKind.DetectionSensor
     ];
@@ -2906,6 +3028,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             LogKind.DeviceMetrics => NodeLogType.DeviceMetrics,
             LogKind.TraceRoute => NodeLogType.TraceRoute,
+            LogKind.EnvironmentMetrics => NodeLogType.EnvironmentMetrics,
             LogKind.PowerMetrics => NodeLogType.PowerMetrics,
             LogKind.DetectionSensor => NodeLogType.DetectionSensor,
             _ => NodeLogType.DeviceMetrics
