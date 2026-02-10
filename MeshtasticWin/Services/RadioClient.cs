@@ -475,7 +475,7 @@ public sealed class RadioClient
     public async System.Threading.Tasks.Task<uint> SendTextAsync(string text)
         => await SendTextAsync(text, (uint?)null);
 
-    // DM når toNodeNum har verdi.
+    // DM when toNodeNum has a value.
     public async System.Threading.Tasks.Task<uint> SendTextAsync(string text, uint? toNodeNum)
     {
         if (!IsConnected || _transport is null)
@@ -489,8 +489,7 @@ public sealed class RadioClient
         bool isDm = toNodeNum.HasValue;
         uint to = isDm ? toNodeNum!.Value : 0xFFFFFFFF;
 
-        // Viktig: user vil ha ACK i primary òg -> set WantAck=true på broadcast òg.
-        // Merk: ikkje alle noder svarar med ACK på broadcast, men når dei gjer, kan me vise ✔.
+        // Keep ACK enabled for broadcast too. Not all nodes ACK broadcast, but when they do we can show it.
         bool wantAck = true;
 
         var msg = ToRadioFactory.CreateTextMessage(

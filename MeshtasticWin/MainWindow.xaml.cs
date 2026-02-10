@@ -28,7 +28,7 @@ public sealed partial class MainWindow : Window
 
     public void NavigateTo(string tag)
     {
-        // Vel meny-elementet som matchar tag
+        // Select the menu item that matches the tag.
         foreach (var mi in Nav.MenuItems)
         {
             if (mi is NavigationViewItem nvi && (nvi.Tag?.ToString() == tag))

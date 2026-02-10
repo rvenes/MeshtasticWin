@@ -7,7 +7,7 @@ public sealed class MessageLive
     public string FromIdHex { get; init; } = "";
     public string FromName { get; init; } = "";
 
-    public string ToIdHex { get; init; } = "";   // "0x........" eller "0xffffffff"
+    public string ToIdHex { get; init; } = "";   // "0x........" or "0xffffffff"
     public string ToName { get; init; } = "";
 
     public bool IsMine { get; init; }
@@ -20,12 +20,12 @@ public sealed class MessageLive
 
     public uint PacketId { get; init; }
 
-    // NYTT: ✓ vs ✓✓
-    public bool IsHeard { get; init; }        // minst ein ACK frå kven som helst
-    public bool IsDelivered { get; init; }    // ACK frå DM-mottakar (kun for DM)
+    // Status ticks: single tick vs double tick
+    public bool IsHeard { get; init; }        // At least one ACK from any node
+    public bool IsDelivered { get; init; }    // ACK from DM recipient (DM only)
 
-    // For å vite kven som er DM-mottakar (nodeNum)
-    public uint DmTargetNodeNum { get; init; } // 0 om ikkje DM
+    // Tracks the DM recipient (nodeNum)
+    public uint DmTargetNodeNum { get; init; } // 0 when not DM
 
     public string Header
     {
@@ -81,7 +81,7 @@ public sealed class MessageLive
 
     public MessageLive WithAckFrom(uint ackFromNodeNum)
     {
-        // broadcast: berre “heard”
+        // Broadcast: heard only
         if (!IsDirect || DmTargetNodeNum == 0)
         {
             if (IsHeard) return this;
@@ -89,8 +89,8 @@ public sealed class MessageLive
         }
 
         // DM:
-        // - heard: ACK frå kven som helst
-        // - delivered: ACK frå DM-mottakar
+        // - heard: ACK from any node
+        // - delivered: ACK from DM recipient
         bool deliveredNow = (ackFromNodeNum == DmTargetNodeNum);
         bool heardNow = true;
 

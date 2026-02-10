@@ -567,7 +567,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
                     NodesList.SelectedItem = node;
                     Selected = node;
 
-                    // Scroll slik at den blir synleg
+                    // Scroll to make the selected node visible.
                     NodesList.ScrollIntoView(node);
                 }
                 return;
@@ -678,7 +678,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private static bool IsOnlineByRssi(NodeLive n)
     {
-        // Online = har målt RSSI (ikkje "—" og ikkje 0)
+        // Online when RSSI is measured (not "—" and not 0).
         if (string.IsNullOrWhiteSpace(n.RSSI) || n.RSSI == "—") return false;
         if (int.TryParse(n.RSSI, out var rssi))
             return rssi != 0;

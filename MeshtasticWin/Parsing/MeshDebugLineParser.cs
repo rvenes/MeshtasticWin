@@ -16,7 +16,7 @@ public static class MeshDebugLineParser
     private static readonly object PacketMetaLock = new();
     private static readonly Dictionary<uint, (uint ToNode, DateTime SeenUtc)> TextPacketMetaById = new();
 
-    // Matchar fr=0xd6c218df eller from=0xd6c218df eller "from 0xd6c218df"
+    // Matches fr=0xd6c218df or from=0xd6c218df or "from 0xd6c218df".
     private static readonly Regex FrRegex =
         new(@"(?:\bfr=0x(?<id>[0-9a-fA-F]+)\b|\bfrom=0x(?<id>[0-9a-fA-F]+)\b|\bfrom 0x(?<id>[0-9a-fA-F]+)\b)",
             RegexOptions.Compiled);
@@ -59,7 +59,7 @@ public static class MeshDebugLineParser
 
         var idHex = $"0x{NormalizeNodeId(m.Groups["id"].Value)}";
 
-        // Finn eller lag node
+        // Find or create node.
         var node = AppState.Nodes.FirstOrDefault(n => n.IdHex == idHex);
         if (node is null)
         {
@@ -69,7 +69,7 @@ public static class MeshDebugLineParser
 
         node.Touch();
 
-        // Hent ut signal-data om dei finst
+        // Extract signal data when present.
         var snrM = SnrRegex.Match(line);
         if (snrM.Success)
             node.SNR = snrM.Groups["snr"].Value;
@@ -78,7 +78,7 @@ public static class MeshDebugLineParser
         if (rssiM.Success)
             node.RSSI = rssiM.Groups["rssi"].Value;
 
-        // Lag ei kort “Sub”-linje som liknar Mac-appen
+        // Build a compact "Sub" line similar to the macOS app.
         string sub = "Seen on mesh";
         var hopM = HopRegex.Match(line);
         var chM = ChRegex.Match(line);

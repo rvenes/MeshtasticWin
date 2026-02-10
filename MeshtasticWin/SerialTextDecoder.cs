@@ -10,7 +10,7 @@ public sealed class SerialTextDecoder
     private readonly Decoder _decoder;
     private readonly StringBuilder _sb = new();
 
-    // Enkel ANSI-strip (fargar osv.)
+    // Simple ANSI stripping (colors etc.)
     private static readonly Regex AnsiRegex = new(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
 
     public SerialTextDecoder(Encoding? encoding = null)
@@ -20,7 +20,7 @@ public sealed class SerialTextDecoder
     }
 
     /// <summary>
-    /// Tek imot byte-chunks og gir attende komplette tekstlinjer.
+    /// Accepts byte chunks and yields complete text lines.
     /// </summary>
     public IEnumerable<string> Feed(byte[] bytes)
     {
@@ -43,7 +43,7 @@ public sealed class SerialTextDecoder
             _sb.Clear();
             _sb.Append(s[(idx + 1)..]);
 
-            // fjern ANSI
+            // Remove ANSI escape sequences.
             line = AnsiRegex.Replace(line, "");
 
             if (!string.IsNullOrWhiteSpace(line))

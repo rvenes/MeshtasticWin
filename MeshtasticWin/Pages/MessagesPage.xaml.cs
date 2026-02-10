@@ -683,10 +683,10 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             toName = node?.Name ?? peer;
         }
 
-        // Send -> få packetId for ACK-match
+        // Send and capture packetId for ACK matching.
         var packetId = await RadioClient.Instance.SendTextAsync(text, toNodeNum);
 
-        // Lokal melding (så kan FromRadioRouter merke ✓ / ✓✓ seinare)
+        // Local message; FromRadioRouter updates status ticks later.
         var local = MessageLive.CreateOutgoing(
             toIdHex: toIdHex,
             toName: toName,

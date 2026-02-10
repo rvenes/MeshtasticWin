@@ -127,11 +127,11 @@ public static class FromRadioRouter
         var fromIdHex = $"0x{fromNodeNum:x8}";
         var toIdHex = $"0x{toNodeNum:x8}";
 
-        // Sørg for node-objekt (så SNR/RSSI kan oppdaterast sjølv om NodeInfo ikkje er kome enno)
+        // Ensure node object exists so SNR/RSSI can be updated before NodeInfo arrives.
         var fromNode = EnsureNode(fromIdHex, fromNodeNum);
         fromNode.Touch();
 
-        // SNR/RSSI (feltnamn varierer litt – prøv fleire)
+        // SNR/RSSI field names can vary, so try multiple names.
         double? rxSnr = null;
         if (TryGetDouble(packetObj, "RxSnr", out var snr) || TryGetDouble(packetObj, "Snr", out snr))
         {
@@ -318,7 +318,7 @@ public static class FromRadioRouter
             }
         }
 
-        // GPS bootstrap frå NodeInfo om den finst
+        // Bootstrap GPS from NodeInfo if present.
         object? posObj =
             nodeInfoObj.GetType().GetProperty("Position", BindingFlags.Public | BindingFlags.Instance)?.GetValue(nodeInfoObj) ??
             nodeInfoObj.GetType().GetProperty("LastPosition", BindingFlags.Public | BindingFlags.Instance)?.GetValue(nodeInfoObj);
@@ -352,7 +352,7 @@ public static class FromRadioRouter
             MeshtasticWin.AppState.Nodes.Insert(0, node);
         }
 
-        // om NodeLive har NodeNum-property (du la den inn)
+        // Set NodeNum when the property exists.
         try { node.NodeNum = nodeNum; } catch { }
 
         return node;
@@ -389,10 +389,10 @@ public static class FromRadioRouter
             return;
         }
 
-        logToUi($"ACK (ukjent request_id=0x{requestId:x8})");
+        logToUi($"ACK (unknown request_id=0x{requestId:x8})");
     }
 
-    // GPS frå packet.Payload (protobuf Position)
+    // GPS from packet.Payload (protobuf Position)
     private static bool TryHandlePositionFromPayload(object decodedObj, uint fromNodeNum, string source, Action<string> logToUi, out string summary)
     {
         summary = "payload empty";
@@ -403,7 +403,7 @@ public static class FromRadioRouter
         return TryParsePositionBytesAndApply(payloadBytes, fromNodeNum, source, logToUi, out summary);
     }
 
-    // GPS frå NodeInfo.Position / LastPosition (protobuf Position-objekt)
+    // GPS from NodeInfo.Position / LastPosition (protobuf Position object)
     private static bool TryHandlePositionFromNodeInfoPositionObject(object posObj, uint fromNodeNum, string source, Action<string> logToUi, out string summary)
     {
         summary = "missing LatitudeI/LongitudeI";
@@ -498,7 +498,7 @@ public static class FromRadioRouter
 
         try
         {
-            // dersom din GpsArchive har annan signatur: tilpass her
+            // If GpsArchive has a different signature in your branch, adjust this call.
             GpsArchive.Append(node.IdHex, lat, lon, tsUtc, alt, src: source);
         }
         catch (Exception ex)

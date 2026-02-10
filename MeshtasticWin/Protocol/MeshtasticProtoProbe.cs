@@ -7,7 +7,7 @@ namespace MeshtasticWin.Protocol;
 
 public static class MeshtasticProtoProbe
 {
-    // Cache så me ikkje leitar kvar gong
+    // Cache so we do not search every time.
     private static Type? _fromRadioType;
     private static PropertyInfo? _parserProp;
     private static MethodInfo? _parseFromBytesMethod;
@@ -42,7 +42,7 @@ public static class MeshtasticProtoProbe
                 return false;
             }
 
-            // Prøv å hente PayloadVariantCase (oneof case)
+            // Try to read PayloadVariantCase (oneof case).
             if (_payloadCaseProp is not null)
             {
                 var caseVal = _payloadCaseProp.GetValue(msgObj);
@@ -72,7 +72,7 @@ public static class MeshtasticProtoProbe
         if (_fromRadioType is not null)
             return;
 
-        // Finn typen "FromRadio" i alle lasta assemblies
+        // Find type "FromRadio" in all loaded assemblies.
         _fromRadioType = AppDomain.CurrentDomain.GetAssemblies()
             .Select(a =>
             {
@@ -88,12 +88,12 @@ public static class MeshtasticProtoProbe
         // Static property: Parser
         _parserProp = _fromRadioType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static);
 
-        // Parser har metode ParseFrom(byte[])
+        // Parser exposes ParseFrom(byte[]).
         var parserType = _parserProp?.PropertyType;
         _parseFromBytesMethod = parserType?.GetMethod("ParseFrom", new[] { typeof(byte[]) });
 
-        // Protobuf C# generator lagar ofte <OneofName>Case property.
-        // I mesh.proto heiter oneof vanlegvis payload_variant -> PayloadVariantCase
+        // Protobuf C# generator usually creates a <OneofName>Case property.
+        // In mesh.proto the oneof is typically payload_variant -> PayloadVariantCase.
         _payloadCaseProp = _fromRadioType.GetProperty("PayloadVariantCase", BindingFlags.Public | BindingFlags.Instance);
     }
 }

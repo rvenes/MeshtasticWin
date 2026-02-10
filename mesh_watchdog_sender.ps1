@@ -1,7 +1,7 @@
 param(
     [string]$Port = "COM10",
     [int]$IntervalSeconds = 300,
-    [string]$MessagePrefix = "testmelding from comport10 til mesh klokka",
+    [string]$MessagePrefix = "test message from COM10 to mesh at",
     [string]$LogDir = "H:\Koding\logging",
     [int]$TimeoutSeconds = 45
 )

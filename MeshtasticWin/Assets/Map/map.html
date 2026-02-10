@@ -119,7 +119,7 @@
 
       if (arr.length <= 1) return [lat, lon];
 
-      const radiusPx = 18; // juster om du vil
+      const radiusPx = 18; // adjust if needed
       const angle = (idx * 2 * Math.PI) / Math.max(arr.length, 6);
 
       const p = map.latLngToContainerPoint([lat, lon]);

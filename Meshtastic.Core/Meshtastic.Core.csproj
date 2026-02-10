@@ -14,16 +14,16 @@
 		</PackageReference>
 	</ItemGroup>
 
-	<ItemGroup>
-		<!-- nanopb.proto må ligge i Protos\ (same nivå som meshtastic-mappa) -->
-		<Protobuf Include="Protos\nanopb.proto"
-				  ProtoRoot="Protos"
-				  GrpcServices="None" />
+		<ItemGroup>
+			<!-- nanopb.proto must be located in Protos\ (same level as the meshtastic folder) -->
+			<Protobuf Include="Protos\nanopb.proto"
+					  ProtoRoot="Protos"
+					  GrpcServices="None" />
 
-		<!-- Alle protos inni Protos\meshtastic\ -->
-		<Protobuf Include="Protos\meshtastic\*.proto"
-				  ProtoRoot="Protos"
-				  GrpcServices="None" />
+			<!-- All protos inside Protos\meshtastic\ -->
+			<Protobuf Include="Protos\meshtastic\*.proto"
+					  ProtoRoot="Protos"
+					  GrpcServices="None" />
 	</ItemGroup>
 
 </Project>

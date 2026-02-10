@@ -119,14 +119,14 @@ public static void NotifyIncomingMessage(string? peerIdHex, DateTime whenUtc)
 private static string NormalizePeerKey(string? peerIdHex)
     => string.IsNullOrWhiteSpace(peerIdHex) ? "" : peerIdHex.Trim();
 
-    // null = Primary channel (broadcast), elles DM med denne node-id-en (IdHex, t.d. "0xd6c218df")
+    // null = Primary channel (broadcast), otherwise DM with this node id (IdHex, e.g. "0xd6c218df")
     public static string? ActiveChatPeerIdHex { get; private set; }
 
     public static event Action? ActiveChatChanged;
 
     public static void SetActiveChatPeer(string? peerIdHex)
     {
-        // Normaliser litt
+        // Normalize input.
         if (string.IsNullOrWhiteSpace(peerIdHex))
             peerIdHex = null;
 
