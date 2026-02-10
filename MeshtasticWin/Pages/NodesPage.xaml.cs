@@ -389,10 +389,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private void EnsureSelectedTabVisible()
     {
-        if (!AppState.ShowPowerMetricsTab && DetailsTabs.SelectedItem == PowerMetricsTabItem)
+        var selected = DetailsTabs.SelectedItem as TabViewItem;
+
+        if (!AppState.ShowPowerMetricsTab && selected == PowerMetricsTabItem)
             DetailsTabs.SelectedItem = MapTabItem;
 
-        if (!AppState.ShowDetectionSensorLogTab && DetailsTabs.SelectedItem == DetectionSensorTabItem)
+        if (!AppState.ShowDetectionSensorLogTab && selected == DetectionSensorTabItem)
             DetailsTabs.SelectedItem = MapTabItem;
     }
 
