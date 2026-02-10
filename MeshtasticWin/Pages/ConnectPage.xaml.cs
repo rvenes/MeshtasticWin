@@ -468,7 +468,7 @@ public sealed partial class ConnectPage : Page
     {
         try
         {
-            var debugDir = Path.Combine(@"H:\Koding\MeshtasticWin\Debuglogg", AppDataPaths.ActiveNodeScope);
+            var debugDir = Path.Combine(AppDataPaths.BasePath, "Debuglogg", AppDataPaths.ActiveNodeScope);
             Directory.CreateDirectory(debugDir);
 
             var fileName = $"connect_debug_{DateTime.Now:yyyyMMdd_HHmmss}.log";

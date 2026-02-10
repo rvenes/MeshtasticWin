@@ -16,7 +16,6 @@ public sealed class RadioClient
     public static RadioClient Instance { get; } = new();
 
     private const int MaxLogLines = 500;
-    private const string LiveDebugLogRootDirectory = @"H:\Koding\MeshtasticWin\Debuglogg";
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
 
     private IRadioTransport? _transport;
@@ -130,7 +129,8 @@ public sealed class RadioClient
 
     private static string BuildScopedLiveLogPath()
     {
-        var scopedDebugDir = Path.Combine(LiveDebugLogRootDirectory, AppDataPaths.ActiveNodeScope);
+        var liveDebugLogRootDirectory = Path.Combine(AppDataPaths.BasePath, "Debuglogg");
+        var scopedDebugDir = Path.Combine(liveDebugLogRootDirectory, AppDataPaths.ActiveNodeScope);
         Directory.CreateDirectory(scopedDebugDir);
         return Path.Combine(scopedDebugDir, $"connect_live_{DateTime.Now:yyyyMMdd_HHmmss}.log");
     }
