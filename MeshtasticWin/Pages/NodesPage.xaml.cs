@@ -1,4 +1,5 @@
 ﻿using AppDataPaths = MeshtasticWin.Services.AppDataPaths;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -60,6 +61,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private readonly Dictionary<string, Dictionary<LogKind, DateTime>> _lastAppendedByNode = new();
     private readonly Dictionary<string, HashSet<LogKind>> _pendingLogIndicatorsByNode = new();
     private string _activeLogScope = AppDataPaths.ActiveNodeScope;
+    private static readonly SolidColorBrush ActiveTabHeaderBrush = new(ColorHelper.FromArgb(255, 79, 195, 247));
+    private readonly Brush _inactiveTabHeaderBrush = ResolveDefaultTabHeaderBrush();
 
     private bool _deviceMetricsTabIndicator;
     private bool _positionTabIndicator;
@@ -76,7 +79,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private PositionLogEntry? _selectedPositionEntry;
     private int _positionLogRetentionDays = 7;
     private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
+    private readonly ObservableCollection<EnvironmentMetricSample> _environmentMetricSamples = new();
     public ObservableCollection<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
+    public ObservableCollection<EnvironmentMetricSample> EnvironmentMetricSamples => _environmentMetricSamples;
     public ObservableCollection<TraceRouteLogEntry> TraceRouteLogEntries { get; } = new();
     private string? _traceRouteNodeId;
     private TraceRouteLogEntry? _selectedTraceRouteEntry;
@@ -186,6 +191,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             : "Trace Route";
 
     public string DeviceMetricsCountText => $"Readings Total: {_deviceMetricSamples.Count}";
+    public string EnvironmentMetricsCountText => $"Readings Total: {_environmentMetricSamples.Count}";
 
     public TraceRouteLogEntry? SelectedTraceRouteEntry
     {
@@ -247,6 +253,8 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public Visibility EnvironmentMetricsTabIndicatorVisibility => _environmentMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PowerMetricsTabIndicatorVisibility => _powerMetricsTabIndicator ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DetectionSensorTabIndicatorVisibility => _detectionSensorTabIndicator ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PowerMetricsTabVisibility => AppState.ShowPowerMetricsTab ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DetectionSensorTabVisibility => AppState.ShowDetectionSensorLogTab ? Visibility.Visible : Visibility.Collapsed;
     public Visibility TraceRouteEmptyVisibility => TraceRouteLogEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public string TraceRouteDetailTitle => SelectedTraceRouteEntry is null
@@ -290,6 +298,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         InitializeComponent();
 
         _deviceMetricSamples.CollectionChanged += DeviceMetricSamples_CollectionChanged;
+        _environmentMetricSamples.CollectionChanged += EnvironmentMetricSamples_CollectionChanged;
         TraceRouteLogEntries.CollectionChanged += (_, __) => OnChanged(nameof(TraceRouteEmptyVisibility));
 
         SortCombo.Items.Add("Sort: Alphabetical A–Z");
@@ -309,8 +318,11 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _allNodes.Add(n);
         }
         AppState.ConnectedNodeChanged += ConnectedNodeChanged;
+        AppState.SettingsChanged += AppState_SettingsChanged;
 
         RebuildVisibleNodes();
+        EnsureSelectedTabVisible();
+        UpdateTabHeaderColors();
 
         _filterApplyTimer.Interval = TimeSpan.FromMilliseconds(250);
         _filterApplyTimer.Tick += (_, __) =>
@@ -347,12 +359,64 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         DeviceMetricsLogService.SampleAdded -= DeviceMetricsLogService_SampleAdded;
         AppState.ConnectedNodeChanged -= ConnectedNodeChanged;
+        AppState.SettingsChanged -= AppState_SettingsChanged;
         _filterApplyTimer.Stop();
         _logPollTimer.Stop();
     }
 
+    private static Brush ResolveDefaultTabHeaderBrush()
+    {
+        if (Application.Current?.Resources is ResourceDictionary resources &&
+            resources.TryGetValue("TextFillColorPrimaryBrush", out var brushObj) &&
+            brushObj is Brush brush)
+        {
+            return brush;
+        }
+
+        return new SolidColorBrush(Colors.White);
+    }
+
+    private void AppState_SettingsChanged()
+    {
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            OnChanged(nameof(PowerMetricsTabVisibility));
+            OnChanged(nameof(DetectionSensorTabVisibility));
+            EnsureSelectedTabVisible();
+            UpdateTabHeaderColors();
+        });
+    }
+
+    private void EnsureSelectedTabVisible()
+    {
+        if (!AppState.ShowPowerMetricsTab && DetailsTabs.SelectedItem == PowerMetricsTabItem)
+            DetailsTabs.SelectedItem = MapTabItem;
+
+        if (!AppState.ShowDetectionSensorLogTab && DetailsTabs.SelectedItem == DetectionSensorTabItem)
+            DetailsTabs.SelectedItem = MapTabItem;
+    }
+
+    private void UpdateTabHeaderColors()
+    {
+        var selected = DetailsTabs.SelectedItem as TabViewItem;
+        SetTabHeaderBrush(MapTabHeaderText, selected == MapTabItem);
+        SetTabHeaderBrush(DeviceMetricsTabHeaderText, selected == DeviceMetricsTabItem);
+        SetTabHeaderBrush(PositionLogTabHeaderText, selected == PositionLogTabItem);
+        SetTabHeaderBrush(TraceRouteTabHeaderText, selected == TraceRouteTabItem);
+        SetTabHeaderBrush(EnvironmentMetricsTabHeaderText, selected == EnvironmentMetricsTabItem);
+        SetTabHeaderBrush(PowerMetricsTabHeaderText, selected == PowerMetricsTabItem);
+        SetTabHeaderBrush(DetectionSensorTabHeaderText, selected == DetectionSensorTabItem);
+    }
+
+    private void SetTabHeaderBrush(TextBlock headerText, bool isActive)
+    {
+        headerText.Foreground = isActive ? ActiveTabHeaderBrush : _inactiveTabHeaderBrush;
+    }
+
     private async void NodesPage_Loaded(object sender, RoutedEventArgs e)
     {
+        EnsureSelectedTabVisible();
+        UpdateTabHeaderColors();
         await EnsureMapAsync();
         await PushAllNodesToMapAsync();
         await PushSelectionToMapAsync();
@@ -1093,6 +1157,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private async void DetailsTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DetailsTabs.SelectedIndex < 0) return;
+        UpdateTabHeaderColors();
 
         if (DetailsTabs.SelectedIndex == 0)
         {
@@ -1179,6 +1244,12 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
     }
 
+    private void EnvironmentMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnChanged(nameof(EnvironmentMetricsCountText));
+        EnvironmentMetricsGraph.SetSamples(_environmentMetricSamples);
+    }
+
     private void DeviceMetricsLogService_SampleAdded(string nodeId, DeviceMetricSample sample)
     {
         if (Selected is null || !string.Equals(NormalizeNodeId(Selected.IdHex), nodeId, StringComparison.OrdinalIgnoreCase))
@@ -1217,6 +1288,30 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             _deviceMetricSamples.Add(sample);
 
         DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
+
+        if (viewer is not null)
+        {
+            var targetOffset = wasAtTop ? 0 : priorOffset;
+            _ = DispatcherQueue.TryEnqueue(() => viewer.ChangeView(null, targetOffset, null, true));
+        }
+    }
+
+    private void RefreshEnvironmentMetricsSamples()
+    {
+        if (Selected is null)
+            return;
+
+        var viewer = FindScrollViewer(EnvironmentMetricsLogList);
+        var wasAtTop = viewer is null || viewer.VerticalOffset <= 0.5;
+        var priorOffset = viewer?.VerticalOffset ?? 0;
+
+        var samples = ReadEnvironmentMetricSamples();
+        _environmentMetricSamples.Clear();
+        foreach (var sample in samples)
+            _environmentMetricSamples.Add(sample);
+
+        EnvironmentMetricsGraph.SetSamples(_environmentMetricSamples);
+        EnvironmentMetricsLogText = BuildEnvironmentMetricsDisplayText(_environmentMetricSamples);
 
         if (viewer is not null)
         {
@@ -1506,7 +1601,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         RefreshDeviceMetricsSamples();
         RefreshTraceRouteEntries();
-        EnvironmentMetricsLogText = ReadLogText(LogKind.EnvironmentMetrics);
+        RefreshEnvironmentMetricsSamples();
         PowerMetricsLogText = ReadLogText(LogKind.PowerMetrics);
         DetectionSensorLogText = ReadLogText(LogKind.DetectionSensor);
 
@@ -1780,6 +1875,100 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return "No log entries yet.";
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private IReadOnlyList<EnvironmentMetricSample> ReadEnvironmentMetricSamples()
+    {
+        if (Selected is null)
+            return Array.Empty<EnvironmentMetricSample>();
+
+        var lines = NodeLogArchive.ReadTail(ToArchiveType(LogKind.EnvironmentMetrics), Selected.IdHex, maxLines: 2000);
+        var samples = new List<EnvironmentMetricSample>();
+
+        foreach (var line in lines)
+        {
+            if (TryParseEnvironmentMetricSample(line, out var sample))
+                samples.Add(sample);
+        }
+
+        return samples
+            .OrderByDescending(sample => sample.TimestampUtc)
+            .ToList();
+    }
+
+    private static string BuildEnvironmentMetricsDisplayText(IEnumerable<EnvironmentMetricSample> samples)
+    {
+        var lines = samples
+            .Select(sample => $"{sample.TimestampText} | {sample.TemperatureDisplay} | {sample.HumidityDisplay} | {sample.PressureDisplay}")
+            .ToArray();
+
+        return lines.Length == 0 ? "No log entries yet." : string.Join(Environment.NewLine, lines);
+    }
+
+    private static bool TryParseEnvironmentMetricSample(string rawLine, out EnvironmentMetricSample sample)
+    {
+        sample = new EnvironmentMetricSample(DateTime.MinValue, null, null, null);
+        if (string.IsNullOrWhiteSpace(rawLine))
+            return false;
+
+        var parts = rawLine.Split(new[] { " | " }, 2, StringSplitOptions.None);
+        if (parts.Length < 2)
+            return false;
+
+        if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var tsUtc))
+        {
+            return false;
+        }
+
+        var payload = parts[1];
+        var jsonStart = payload.IndexOf('{');
+        var jsonEnd = payload.LastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart)
+            return false;
+
+        var json = payload.Substring(jsonStart, jsonEnd - jsonStart + 1);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var temperature = ReadJsonDouble(root, "temperature");
+            var humidity = ReadJsonDouble(root, "relativeHumidity")
+                ?? ReadJsonDouble(root, "relative_humidity")
+                ?? ReadJsonDouble(root, "humidity");
+            var pressure = ReadJsonDouble(root, "barometricPressure")
+                ?? ReadJsonDouble(root, "barometric_pressure")
+                ?? ReadJsonDouble(root, "pressure");
+
+            if (!temperature.HasValue && !humidity.HasValue && !pressure.HasValue)
+                return false;
+
+            sample = new EnvironmentMetricSample(tsUtc.ToUniversalTime(), temperature, humidity, pressure);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static double? ReadJsonDouble(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var value))
+            return null;
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var asNumber))
+            return asNumber;
+
+        if (value.ValueKind == JsonValueKind.String &&
+            double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var asText))
+        {
+            return asText;
+        }
+
+        return null;
     }
 
     private IReadOnlyList<PositionLogEntry> ReadPositionEntries()

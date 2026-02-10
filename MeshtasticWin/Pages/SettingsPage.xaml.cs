@@ -7,7 +7,19 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         InitializeComponent();
+        ShowPowerMetricsToggle.IsOn = AppState.ShowPowerMetricsTab;
+        ShowDetectionSensorToggle.IsOn = AppState.ShowDetectionSensorLogTab;
         WebViewDevToolsToggle.IsOn = AppState.EnableWebViewDevTools;
+    }
+
+    private void ShowPowerMetricsToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        AppState.ShowPowerMetricsTab = ShowPowerMetricsToggle.IsOn;
+    }
+
+    private void ShowDetectionSensorToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        AppState.ShowDetectionSensorLogTab = ShowDetectionSensorToggle.IsOn;
     }
 
     private void WebViewDevToolsToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)

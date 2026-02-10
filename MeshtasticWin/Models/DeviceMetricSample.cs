@@ -36,8 +36,14 @@ public sealed record DeviceMetricSample
     {
         get
         {
+            if (BatteryVolts.HasValue && BatteryPercent.HasValue)
+            {
+                return $"BAT {BatteryVolts.Value.ToString("0.##", CultureInfo.InvariantCulture)}V ({BatteryPercent.Value.ToString("0.#", CultureInfo.InvariantCulture)}%)";
+            }
+
             if (BatteryVolts.HasValue)
                 return $"BAT {BatteryVolts.Value.ToString("0.##", CultureInfo.InvariantCulture)}V";
+
             if (BatteryPercent.HasValue)
                 return $"BAT {BatteryPercent.Value.ToString("0.#", CultureInfo.InvariantCulture)}%";
             return "BAT —";

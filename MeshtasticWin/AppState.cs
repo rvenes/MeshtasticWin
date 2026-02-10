@@ -12,6 +12,31 @@ public static class AppState
     public static ObservableCollection<NodeLive> Nodes { get; } = new();
     public static ObservableCollection<MessageLive> Messages { get; } = new();
     public static bool EnableWebViewDevTools { get; set; }
+    public static event Action? SettingsChanged;
+
+    private static bool _showPowerMetricsTab;
+    public static bool ShowPowerMetricsTab
+    {
+        get => _showPowerMetricsTab;
+        set
+        {
+            if (_showPowerMetricsTab == value) return;
+            _showPowerMetricsTab = value;
+            SettingsChanged?.Invoke();
+        }
+    }
+
+    private static bool _showDetectionSensorLogTab;
+    public static bool ShowDetectionSensorLogTab
+    {
+        get => _showDetectionSensorLogTab;
+        set
+        {
+            if (_showDetectionSensorLogTab == value) return;
+            _showDetectionSensorLogTab = value;
+            SettingsChanged?.Invoke();
+        }
+    }
 
     public static string? ConnectedNodeIdHex { get; private set; }
     public static event Action? ConnectedNodeChanged;

@@ -125,10 +125,10 @@
                                   VerticalContentAlignment="Stretch"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch">
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="MapTabItem" IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Map"/>
+                                <TextBlock x:Name="MapTabHeaderText" Text="Map"/>
                             </StackPanel>
                         </controls:TabViewItem.Header>
                         <Border CornerRadius="10"
@@ -146,10 +146,10 @@
                         </Border>
                     </controls:TabViewItem>
 
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="DeviceMetricsTabItem" IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Device Metrics"/>
+                                <TextBlock x:Name="DeviceMetricsTabHeaderText" Text="Device Metrics"/>
                                 <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
                                          Visibility="{x:Bind DeviceMetricsTabIndicatorVisibility, Mode=OneWay}"/>
                             </StackPanel>
@@ -211,14 +211,26 @@
                                 </ListView.ItemContainerStyle>
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="2">
+                                        <Grid ColumnDefinitions="190,170,170,170,70"
+                                              ColumnSpacing="12"
+                                              Padding="2">
                                             <TextBlock Text="{Binding TimestampText}" FontFamily="Consolas" FontSize="12"/>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                                                <TextBlock Text="{Binding BatteryDisplay}" FontFamily="Consolas" FontSize="12"/>
-                                                <TextBlock Text="{Binding ChannelUtilizationDisplay}" FontFamily="Consolas" FontSize="12"/>
-                                                <TextBlock Text="{Binding AirtimeDisplay}" FontFamily="Consolas" FontSize="12"/>
-                                            </StackPanel>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding BatteryDisplay}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       Foreground="#FF4CAF50"/>
                                             <TextBlock Grid.Column="2"
+                                                       Text="{Binding ChannelUtilizationDisplay}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       Foreground="#FF2196F3"/>
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{Binding AirtimeDisplay}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       Foreground="#FFFF9800"/>
+                                            <TextBlock Grid.Column="4"
                                                        Text="{Binding PoweredDisplay}"
                                                        FontFamily="Consolas"
                                                        FontSize="12"
@@ -231,10 +243,10 @@
                         </Grid>
                     </controls:TabViewItem>
 
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="PositionLogTabItem" IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Position Log"/>
+                                <TextBlock x:Name="PositionLogTabHeaderText" Text="Position Log"/>
                                 <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
                                          Visibility="{x:Bind PositionTabIndicatorVisibility, Mode=OneWay}"/>
                             </StackPanel>
@@ -291,10 +303,10 @@
                         </Grid>
                     </controls:TabViewItem>
 
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="TraceRouteTabItem" IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Trace Route Log"/>
+                                <TextBlock x:Name="TraceRouteTabHeaderText" Text="Trace Route Log"/>
                                 <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
                                          Visibility="{x:Bind TraceRouteTabIndicatorVisibility, Mode=OneWay}"/>
                             </StackPanel>
@@ -382,50 +394,101 @@
                         </Grid>
                     </controls:TabViewItem>
 
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="EnvironmentMetricsTabItem" IsClosable="False">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Environment Metrics" Foreground="#4FC3F7"/>
+                                <TextBlock x:Name="EnvironmentMetricsTabHeaderText" Text="Environment Metrics"/>
                                 <Ellipse Width="8" Height="8" Fill="#4FC3F7" VerticalAlignment="Center"
                                          Visibility="{x:Bind EnvironmentMetricsTabIndicatorVisibility, Mode=OneWay}"/>
                             </StackPanel>
                         </controls:TabViewItem.Header>
-                        <Grid RowDefinitions="Auto,*" Padding="12">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <Button Content="Show folder"
-                                        Tag="EnvironmentMetrics"
-                                        Click="ShowLogFolder_Click"
-                                        IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
-                                <TextBlock Text="Delete older than (days):" VerticalAlignment="Center"/>
-                                <controls:NumberBox Width="96"
-                                                    Value="{x:Bind PositionLogRetentionDaysValue, Mode=TwoWay}"
-                                                    Minimum="1"
-                                                    SpinButtonPlacementMode="Inline"/>
-                                <Button Content="Delete"
-                                        Tag="EnvironmentMetrics"
-                                        Click="DeleteLogOlder_Click"
-                                        IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
-                                <Button Content="Delete all"
-                                        Tag="EnvironmentMetrics"
-                                        Click="DeleteLogAll_Click"
-                                        IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
-                                <Button Content="Export..." IsEnabled="False"/>
-                            </StackPanel>
-                            <TextBox Grid.Row="1"
-                                     Text="{x:Bind EnvironmentMetricsLogText, Mode=OneWay}"
-                                     IsReadOnly="True"
-                                     TextWrapping="Wrap"
-                                     AcceptsReturn="True"
-                                     FontFamily="Consolas"
-                                     Padding="8"
-                                     Margin="0,8,0,0"/>
+                        <Grid RowDefinitions="Auto,Auto,*" Padding="12">
+                            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind EnvironmentMetricsCountText, Mode=OneWay}" FontWeight="SemiBold"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button Content="Show folder"
+                                            Tag="EnvironmentMetrics"
+                                            Click="ShowLogFolder_Click"
+                                            IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                                    <TextBlock Text="Delete older than (days):" VerticalAlignment="Center"/>
+                                    <controls:NumberBox Width="96"
+                                                        Value="{x:Bind PositionLogRetentionDaysValue, Mode=TwoWay}"
+                                                        Minimum="1"
+                                                        SpinButtonPlacementMode="Inline"/>
+                                    <Button Content="Delete"
+                                            Tag="EnvironmentMetrics"
+                                            Click="DeleteLogOlder_Click"
+                                            IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                                    <Button Content="Delete all"
+                                            Tag="EnvironmentMetrics"
+                                            Click="DeleteLogAll_Click"
+                                            IsEnabled="{x:Bind HasSelection, Mode=OneWay}"/>
+                                    <Button Content="Export..." IsEnabled="False"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="0,8,0,8">
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="8" Height="8" Fill="#FF4FC3F7"/>
+                                        <TextBlock Text="Temperature"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="8" Height="8" Fill="#FF81C784"/>
+                                        <TextBlock Text="Humidity"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="8" Height="8" Fill="#FFFFB74D"/>
+                                        <TextBlock Text="Pressure"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <localcontrols:EnvironmentMetricsGraph Grid.Row="1"
+                                                                       x:Name="EnvironmentMetricsGraph"
+                                                                       Height="180"/>
+                            </Grid>
+                            <ListView Grid.Row="2"
+                                      x:Name="EnvironmentMetricsLogList"
+                                      ItemsSource="{Binding EnvironmentMetricSamples, ElementName=Root}"
+                                      SelectionMode="None">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="MinHeight" Value="22"/>
+                                        <Setter Property="Padding" Value="2"/>
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:EnvironmentMetricSample">
+                                        <Grid ColumnDefinitions="190,150,170,170"
+                                              ColumnSpacing="12"
+                                              Padding="2">
+                                            <TextBlock Text="{x:Bind TimestampText}" FontFamily="Consolas" FontSize="12"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{x:Bind TemperatureDisplay}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       Foreground="#FF4FC3F7"/>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{x:Bind HumidityDisplay}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       Foreground="#FF81C784"/>
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{x:Bind PressureDisplay}"
+                                                       FontFamily="Consolas"
+                                                       FontSize="12"
+                                                       Foreground="#FFFFB74D"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
                         </Grid>
                     </controls:TabViewItem>
 
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="PowerMetricsTabItem"
+                                          IsClosable="False"
+                                          Visibility="{x:Bind PowerMetricsTabVisibility, Mode=OneWay}">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Power Metrics"/>
+                                <TextBlock x:Name="PowerMetricsTabHeaderText" Text="Power Metrics"/>
                                 <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
                                          Visibility="{x:Bind PowerMetricsTabIndicatorVisibility, Mode=OneWay}"/>
                             </StackPanel>
@@ -462,10 +525,12 @@
                         </Grid>
                     </controls:TabViewItem>
 
-                    <controls:TabViewItem IsClosable="False">
+                    <controls:TabViewItem x:Name="DetectionSensorTabItem"
+                                          IsClosable="False"
+                                          Visibility="{x:Bind DetectionSensorTabVisibility, Mode=OneWay}">
                         <controls:TabViewItem.Header>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="Detection Sensor Log"/>
+                                <TextBlock x:Name="DetectionSensorTabHeaderText" Text="Detection Sensor Log"/>
                                 <Ellipse Width="8" Height="8" Fill="LimeGreen" VerticalAlignment="Center"
                                          Visibility="{x:Bind DetectionSensorTabIndicatorVisibility, Mode=OneWay}"/>
                             </StackPanel>

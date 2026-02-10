@@ -1,0 +1,18 @@
+<UserControl
+    x:Class="MeshtasticWin.Controls.EnvironmentMetricsGraph"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Canvas x:Name="ChartCanvas"
+            Background="{ThemeResource CardBackgroundFillColorDefault}">
+        <Polyline x:Name="TemperatureLine"
+                  Stroke="#FF4FC3F7"
+                  StrokeThickness="2"/>
+        <Polyline x:Name="HumidityLine"
+                  Stroke="#FF81C784"
+                  StrokeThickness="2"/>
+        <Polyline x:Name="PressureLine"
+                  Stroke="#FFFFB74D"
+                  StrokeThickness="2"/>
+    </Canvas>
+</UserControl>

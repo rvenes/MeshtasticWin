@@ -6,6 +6,12 @@
     <Grid Padding="16" RowDefinitions="Auto,12,Auto">
         <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold"/>
         <StackPanel Grid.Row="2" Spacing="12">
+            <ToggleSwitch x:Name="ShowPowerMetricsToggle"
+                          Header="Show Power Metrics tab"
+                          Toggled="ShowPowerMetricsToggle_Toggled"/>
+            <ToggleSwitch x:Name="ShowDetectionSensorToggle"
+                          Header="Show Detection Sensor Log tab"
+                          Toggled="ShowDetectionSensorToggle_Toggled"/>
             <ToggleSwitch x:Name="WebViewDevToolsToggle"
                           Header="Enable WebView DevTools"
                           Toggled="WebViewDevToolsToggle_Toggled"/>
