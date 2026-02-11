@@ -31,3 +31,4 @@ Thumbs.db
 # NuGet
 packages/
 *.nupkg
+CODEX.md
