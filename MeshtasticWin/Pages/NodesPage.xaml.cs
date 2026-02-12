@@ -22,6 +22,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Xml;
 using Windows.ApplicationModel;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.System;
@@ -84,6 +85,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     public ObservableCollection<TraceRouteLogEntry> TraceRouteLogEntries { get; } = new();
     private string? _traceRouteNodeId;
     private TraceRouteLogEntry? _selectedTraceRouteEntry;
+    private bool _isPublicKeyVisible;
 
     private NodeLive? _selected;
     public NodeLive? Selected
@@ -93,6 +95,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             if (_selected == value) return;
             _selected = value;
+            _isPublicKeyVisible = false;
 
             OnChanged(nameof(Selected));
             OnChanged(nameof(HasSelection));
@@ -104,6 +107,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedShortNameText));
             OnChanged(nameof(SelectedUserIdText));
             OnChanged(nameof(SelectedPublicKeyText));
+            OnChanged(nameof(SelectedPublicKeyDisplayText));
+            OnChanged(nameof(HasSelectedPublicKey));
+            OnChanged(nameof(PublicKeyToggleButtonText));
             OnChanged(nameof(SelectedFirmwareVersionText));
             OnChanged(nameof(SelectedRoleText));
             OnChanged(nameof(SelectedUptimeText));
@@ -199,6 +205,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         Selected is null || string.IsNullOrWhiteSpace(Selected.PublicKey)
             ? "—"
             : Selected.PublicKey;
+
+    public string SelectedPublicKeyDisplayText =>
+        !HasSelectedPublicKey
+            ? "—"
+            : _isPublicKeyVisible
+                ? SelectedPublicKeyText
+                : "Hidden";
+
+    public bool HasSelectedPublicKey =>
+        Selected is not null && !string.IsNullOrWhiteSpace(Selected.PublicKey);
+
+    public string PublicKeyToggleButtonText => _isPublicKeyVisible ? "Hide" : "Show";
 
     public string SelectedFirmwareVersionText =>
         Selected is null || string.IsNullOrWhiteSpace(Selected.FirmwareVersion)
@@ -727,6 +745,9 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedNodeNumText));
             OnChanged(nameof(SelectedUserIdText));
             OnChanged(nameof(SelectedPublicKeyText));
+            OnChanged(nameof(SelectedPublicKeyDisplayText));
+            OnChanged(nameof(HasSelectedPublicKey));
+            OnChanged(nameof(PublicKeyToggleButtonText));
             OnChanged(nameof(SelectedFirmwareVersionText));
             OnChanged(nameof(SelectedRoleText));
             OnChanged(nameof(SelectedUptimeText));
@@ -752,6 +773,57 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         {
             TryAppendTrackPoint(updatedNode);
         }
+    }
+
+    private void TogglePublicKeyVisibility_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasSelectedPublicKey)
+            return;
+
+        _isPublicKeyVisible = !_isPublicKeyVisible;
+        OnChanged(nameof(SelectedPublicKeyDisplayText));
+        OnChanged(nameof(PublicKeyToggleButtonText));
+    }
+
+    private void CopySelectedPublicKey_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasSelectedPublicKey || Selected is null)
+            return;
+
+        CopyTextToClipboard(Selected.PublicKey);
+    }
+
+    private void TextCopyFlyout_Opening(object sender, object e)
+    {
+        if (sender is not MenuFlyout flyout)
+            return;
+
+        var text = (flyout.Target as TextBlock)?.Text;
+        var isEnabled = !string.IsNullOrWhiteSpace(text);
+        foreach (var item in flyout.Items.OfType<MenuFlyoutItem>())
+        {
+            item.IsEnabled = isEnabled;
+            item.CommandParameter = text;
+        }
+    }
+
+    private void CopyTextBlockMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item)
+            return;
+
+        var text = item.CommandParameter as string;
+        CopyTextToClipboard(text);
+    }
+
+    private static void CopyTextToClipboard(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        var data = new DataPackage();
+        data.SetText(text);
+        Clipboard.SetContent(data);
     }
 
     private static bool IsOnlineByRssi(NodeLive n)
