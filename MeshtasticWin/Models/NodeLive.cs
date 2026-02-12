@@ -12,9 +12,92 @@ public sealed class NodeLive : INotifyPropertyChanged
 
     // Used for sorting/filtering.
     public DateTime LastHeardUtc { get; private set; } = DateTime.MinValue;
+    public DateTime FirstHeardUtc { get; private set; } = DateTime.MinValue;
 
     // Optional (can be shown in UI).
-    public ulong NodeNum { get; set; }
+    private ulong _nodeNum;
+    public ulong NodeNum
+    {
+        get => _nodeNum;
+        set
+        {
+            if (_nodeNum == value) return;
+            _nodeNum = value;
+            OnChanged(nameof(NodeNum));
+        }
+    }
+
+    private string _userId = "";
+    public string UserId
+    {
+        get => _userId;
+        set
+        {
+            if (_userId == value) return;
+            _userId = value;
+            OnChanged(nameof(UserId));
+        }
+    }
+
+    private string _publicKey = "";
+    public string PublicKey
+    {
+        get => _publicKey;
+        set
+        {
+            if (_publicKey == value) return;
+            _publicKey = value;
+            OnChanged(nameof(PublicKey));
+        }
+    }
+
+    private string _firmwareVersion = "";
+    public string FirmwareVersion
+    {
+        get => _firmwareVersion;
+        set
+        {
+            if (_firmwareVersion == value) return;
+            _firmwareVersion = value;
+            OnChanged(nameof(FirmwareVersion));
+        }
+    }
+
+    private string _role = "";
+    public string Role
+    {
+        get => _role;
+        set
+        {
+            if (_role == value) return;
+            _role = value;
+            OnChanged(nameof(Role));
+        }
+    }
+
+    private string _hardwareModel = "";
+    public string HardwareModel
+    {
+        get => _hardwareModel;
+        set
+        {
+            if (_hardwareModel == value) return;
+            _hardwareModel = value;
+            OnChanged(nameof(HardwareModel));
+        }
+    }
+
+    private uint? _uptimeSeconds;
+    public uint? UptimeSeconds
+    {
+        get => _uptimeSeconds;
+        set
+        {
+            if (_uptimeSeconds == value) return;
+            _uptimeSeconds = value;
+            OnChanged(nameof(UptimeSeconds));
+        }
+    }
 
     public string ShortId
     {
@@ -205,6 +288,7 @@ public sealed class NodeLive : INotifyPropertyChanged
     {
         IdHex = idHex;
         Sub = "Seen on mesh";
+        SetFirstHeard(DateTime.UtcNow);
 
         // Update unread indicator when AppState changes.
         MeshtasticWin.AppState.UnreadChanged += peer =>
@@ -222,10 +306,24 @@ public sealed class NodeLive : INotifyPropertyChanged
         Touch();
     }
 
+    public void SetFirstHeard(DateTime tsUtc)
+    {
+        if (tsUtc == DateTime.MinValue)
+            return;
+
+        if (FirstHeardUtc == DateTime.MinValue || tsUtc < FirstHeardUtc)
+        {
+            FirstHeardUtc = tsUtc;
+            OnChanged(nameof(FirstHeardUtc));
+        }
+    }
+
     public void Touch()
     {
-        LastHeardUtc = DateTime.UtcNow;
-        LastHeard = DateTime.Now.ToString("HH:mm:ss");
+        var nowUtc = DateTime.UtcNow;
+        SetFirstHeard(nowUtc);
+        LastHeardUtc = nowUtc;
+        LastHeard = nowUtc.ToLocalTime().ToString("HH:mm:ss");
         OnChanged(nameof(LastHeardUtc));
     }
 
