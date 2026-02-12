@@ -1,91 +1,31 @@
 ﻿using Google.Protobuf;
+using Meshtastic.Protobufs;
 using System;
-using System.Linq;
-using System.Reflection;
+using System.Globalization;
 using System.Text;
 
 namespace MeshtasticWin.Protocol;
 
 public static class ToRadioFactory
 {
-    private static Type? _toRadioType;
-    private static Type? _meshPacketType;
-    private static Type? _decodedType;
-
-    private static PropertyInfo? _toRadioPacketProp;
-    private static PropertyInfo? _toRadioWantConfigIdProp;
-    private static PropertyInfo? _toRadioDisconnectProp;
-    private static PropertyInfo? _toRadioHeartbeatProp;
-
-    private static PropertyInfo? _packetToProp;
-    private static PropertyInfo? _packetDecodedProp;
-    private static PropertyInfo? _packetIdProp;
-    private static PropertyInfo? _packetWantAckProp;
-    private static PropertyInfo? _packetHopLimitProp;
-    private static PropertyInfo? _packetChannelProp;
-
-    private static PropertyInfo? _decodedPortnumProp;
-    private static PropertyInfo? _decodedPayloadProp;
-    private static PropertyInfo? _decodedWantResponseProp;
-    private static PropertyInfo? _decodedDestProp;
-    private static PropertyInfo? _heartbeatNonceProp;
+    public const int MaxTextPayloadBytes = 200;
+    private const uint BroadcastNodeNum = 0xFFFFFFFF;
+    private const uint DefaultHopLimit = 3;
 
     public static IMessage CreateHelloRequest(uint wantConfigId = 1u)
-    {
-        EnsureCached();
-
-        if (_toRadioType is null)
-            throw new InvalidOperationException("ToRadio type not found");
-
-        var msg = (IMessage)Activator.CreateInstance(_toRadioType)!;
-
-        if (_toRadioWantConfigIdProp is null)
-            throw new InvalidOperationException("ToRadio.WantConfigId property not found");
-
-        _toRadioWantConfigIdProp.SetValue(msg, wantConfigId);
-        return msg;
-    }
+        => new ToRadio { WantConfigId = wantConfigId };
 
     public static IMessage CreateDisconnectNotice()
-    {
-        EnsureCached();
-
-        if (_toRadioType is null)
-            throw new InvalidOperationException("ToRadio type not found");
-
-        var msg = (IMessage)Activator.CreateInstance(_toRadioType)!;
-
-        if (_toRadioDisconnectProp is null)
-            throw new InvalidOperationException("ToRadio.Disconnect property not found");
-
-        _toRadioDisconnectProp.SetValue(msg, true);
-        return msg;
-    }
+        => new ToRadio { Disconnect = true };
 
     public static IMessage CreateHeartbeat(uint nonce)
-    {
-        EnsureCached();
-
-        if (_toRadioType is null)
-            throw new InvalidOperationException("ToRadio type not found");
-
-        if (_toRadioHeartbeatProp is null)
-            throw new InvalidOperationException("ToRadio.Heartbeat property not found");
-
-        var heartbeatType = _toRadioHeartbeatProp.PropertyType;
-        var heartbeatObj = Activator.CreateInstance(heartbeatType)
-            ?? throw new InvalidOperationException("Heartbeat type could not be created");
-
-        var nonceProp = _heartbeatNonceProp ?? heartbeatType.GetProperty("Nonce", BindingFlags.Public | BindingFlags.Instance);
-        if (nonceProp is null)
-            throw new InvalidOperationException("Heartbeat.Nonce property not found");
-
-        nonceProp.SetValue(heartbeatObj, nonce);
-
-        var msg = (IMessage)Activator.CreateInstance(_toRadioType)!;
-        _toRadioHeartbeatProp.SetValue(msg, heartbeatObj);
-        return msg;
-    }
+        => new ToRadio
+        {
+            Heartbeat = new Heartbeat
+            {
+                Nonce = nonce
+            }
+        };
 
     public static IMessage CreateTextMessage(
         string text,
@@ -94,229 +34,123 @@ public static class ToRadioFactory
         uint channel,
         out uint packetId)
     {
-        EnsureCached();
+        var normalizedText = NormalizeTextPayload(text, MaxTextPayloadBytes);
+        var bytes = Encoding.UTF8.GetBytes(normalizedText);
+        var wantAckResolved = wantAck ?? (to != BroadcastNodeNum);
+        packetId = PacketIdGenerator.Next();
 
-        packetId = 0;
-
-        if (_toRadioType is null || _meshPacketType is null || _decodedType is null)
-            throw new InvalidOperationException("Proto types not found (ToRadio/MeshPacket/Decoded)");
-
-        if (_toRadioPacketProp is null)
-            throw new InvalidOperationException("ToRadio.Packet property not found");
-
-        if (_packetToProp is null || _packetDecodedProp is null)
-            throw new InvalidOperationException("MeshPacket.{To/Decoded} properties not found");
-
-        if (_decodedPortnumProp is null || _decodedPayloadProp is null)
-            throw new InvalidOperationException("Decoded.{Portnum/Payload} properties not found");
-
-        bool wantAckResolved = wantAck ?? (to != 0xFFFFFFFF);
-
-        var toRadio = (IMessage)Activator.CreateInstance(_toRadioType)!;
-        var packet = Activator.CreateInstance(_meshPacketType)!;
-
-        _packetToProp.SetValue(packet, to);
-
-        // Channel: DM skal alltid vere 0
-        if (_packetChannelProp is not null)
-            _packetChannelProp.SetValue(packet, channel);
-
-        // Hop limit: ensure non-zero TTL for routed messages
-        if (_packetHopLimitProp is not null)
-            _packetHopLimitProp.SetValue(packet, 3u);
-
-        // Id: unik/non-zero
-        if (_packetIdProp is not null)
+        var packet = new MeshPacket
         {
-            packetId = PacketIdGenerator.Next();
-            _packetIdProp.SetValue(packet, packetId);
-        }
+            To = to,
+            Channel = channel,
+            HopLimit = DefaultHopLimit,
+            Id = packetId,
+            WantAck = wantAckResolved,
+            Decoded = new Data
+            {
+                Portnum = PortNum.TextMessageApp,
+                Payload = ByteString.CopyFrom(bytes)
+            }
+        };
 
-        // WantAck
-        if (_packetWantAckProp is not null)
-            _packetWantAckProp.SetValue(packet, wantAckResolved);
-
-        // Decoded
-        var decoded = Activator.CreateInstance(_decodedType)!;
-
-        // Portnum = TEXT_MESSAGE_APP = 1
-        var portPropType = _decodedPortnumProp.PropertyType;
-        object portValue = portPropType.IsEnum ? Enum.ToObject(portPropType, 1) : 1;
-        _decodedPortnumProp.SetValue(decoded, portValue);
-
-        // Payload
-        var bytes = Encoding.UTF8.GetBytes(text ?? "");
-        _decodedPayloadProp.SetValue(decoded, ByteString.CopyFrom(bytes));
-
-        _packetDecodedProp.SetValue(packet, decoded);
-        _toRadioPacketProp.SetValue(toRadio, packet);
-
-        return toRadio;
+        return new ToRadio { Packet = packet };
     }
 
     public static IMessage CreateNodeInfoRequest(uint to, out uint packetId)
-        => CreateRequestMessage(to, portNum: 4, wantResponse: true, payload: Array.Empty<byte>(), dest: null, out packetId);
+        => CreateRequestMessage(
+            to,
+            portNum: PortNum.NodeinfoApp,
+            wantResponse: true,
+            payload: Array.Empty<byte>(),
+            dest: null,
+            out packetId);
 
     public static IMessage CreatePositionRequest(uint to, out uint packetId)
-        => CreateRequestMessage(to, portNum: 3, wantResponse: true, payload: Array.Empty<byte>(), dest: null, out packetId);
+        => CreateRequestMessage(
+            to,
+            portNum: PortNum.PositionApp,
+            wantResponse: true,
+            payload: Array.Empty<byte>(),
+            dest: null,
+            out packetId);
 
     public static IMessage CreateTraceRouteRequest(uint to, out uint packetId)
     {
         var payload = CreateRouteDiscoveryPayload();
-        return CreateRequestMessage(to, portNum: 70, wantResponse: true, payload: payload, dest: to, out packetId);
+        return CreateRequestMessage(
+            to,
+            portNum: PortNum.TracerouteApp,
+            wantResponse: true,
+            payload: payload,
+            dest: to,
+            out packetId);
     }
 
     private static IMessage CreateRequestMessage(
         uint to,
-        int portNum,
+        PortNum portNum,
         bool wantResponse,
         byte[] payload,
         uint? dest,
         out uint packetId)
     {
-        EnsureCached();
+        packetId = PacketIdGenerator.Next();
 
-        packetId = 0;
-
-        if (_toRadioType is null || _meshPacketType is null || _decodedType is null)
-            throw new InvalidOperationException("Proto types not found (ToRadio/MeshPacket/Decoded)");
-
-        if (_toRadioPacketProp is null)
-            throw new InvalidOperationException("ToRadio.Packet property not found");
-
-        if (_packetToProp is null || _packetDecodedProp is null)
-            throw new InvalidOperationException("MeshPacket.{To/Decoded} properties not found");
-
-        if (_decodedPortnumProp is null || _decodedPayloadProp is null)
-            throw new InvalidOperationException("Decoded.{Portnum/Payload} properties not found");
-
-        var toRadio = (IMessage)Activator.CreateInstance(_toRadioType)!;
-        var packet = Activator.CreateInstance(_meshPacketType)!;
-
-        _packetToProp.SetValue(packet, to);
-
-        if (_packetChannelProp is not null)
-            _packetChannelProp.SetValue(packet, 0u);
-
-        if (_packetHopLimitProp is not null)
-            _packetHopLimitProp.SetValue(packet, 3u);
-
-        if (_packetIdProp is not null)
+        var decoded = new Data
         {
-            packetId = PacketIdGenerator.Next();
-            _packetIdProp.SetValue(packet, packetId);
-        }
+            Portnum = portNum,
+            Payload = ByteString.CopyFrom(payload ?? Array.Empty<byte>()),
+            WantResponse = wantResponse
+        };
 
-        if (_packetWantAckProp is not null)
-            _packetWantAckProp.SetValue(packet, true);
+        if (dest.HasValue)
+            decoded.Dest = dest.Value;
 
-        var decoded = Activator.CreateInstance(_decodedType)!;
-
-        var portPropType = _decodedPortnumProp.PropertyType;
-        object portValue = portPropType.IsEnum ? Enum.ToObject(portPropType, portNum) : portNum;
-        _decodedPortnumProp.SetValue(decoded, portValue);
-
-        _decodedPayloadProp.SetValue(decoded, ByteString.CopyFrom(payload ?? Array.Empty<byte>()));
-
-        if (wantResponse && _decodedWantResponseProp is not null)
-            _decodedWantResponseProp.SetValue(decoded, true);
-
-        if (dest.HasValue && _decodedDestProp is not null)
-            _decodedDestProp.SetValue(decoded, dest.Value);
-
-        _packetDecodedProp.SetValue(packet, decoded);
-        _toRadioPacketProp.SetValue(toRadio, packet);
-
-        return toRadio;
-    }
-
-    private static void EnsureCached()
-    {
-        if (_toRadioType is not null)
-            return;
-
-        _toRadioType = FindTypeByName("ToRadio");
-        _meshPacketType = FindTypeByName("MeshPacket");
-
-        if (_toRadioType is null || _meshPacketType is null)
-            return;
-
-        _toRadioWantConfigIdProp =
-            _toRadioType.GetProperty("WantConfigId", BindingFlags.Public | BindingFlags.Instance);
-
-        _toRadioDisconnectProp =
-            _toRadioType.GetProperty("Disconnect", BindingFlags.Public | BindingFlags.Instance);
-
-        _toRadioHeartbeatProp =
-            _toRadioType.GetProperty("Heartbeat", BindingFlags.Public | BindingFlags.Instance);
-
-        _toRadioPacketProp =
-            _toRadioType.GetProperty("Packet", BindingFlags.Public | BindingFlags.Instance);
-
-        _packetToProp =
-            _meshPacketType.GetProperty("To", BindingFlags.Public | BindingFlags.Instance);
-
-        _packetDecodedProp =
-            _meshPacketType.GetProperty("Decoded", BindingFlags.Public | BindingFlags.Instance);
-
-        _packetIdProp =
-            _meshPacketType.GetProperty("Id", BindingFlags.Public | BindingFlags.Instance);
-
-        _packetWantAckProp =
-            _meshPacketType.GetProperty("WantAck", BindingFlags.Public | BindingFlags.Instance);
-
-        _packetChannelProp =
-            _meshPacketType.GetProperty("Channel", BindingFlags.Public | BindingFlags.Instance);
-
-        _packetHopLimitProp =
-            _meshPacketType.GetProperty("HopLimit", BindingFlags.Public | BindingFlags.Instance);
-
-        _decodedType = _packetDecodedProp?.PropertyType;
-
-        if (_decodedType is not null)
+        var packet = new MeshPacket
         {
-            _decodedPortnumProp =
-                _decodedType.GetProperty("Portnum", BindingFlags.Public | BindingFlags.Instance);
+            To = to,
+            Channel = 0,
+            HopLimit = DefaultHopLimit,
+            Id = packetId,
+            WantAck = true,
+            Decoded = decoded
+        };
 
-            _decodedPayloadProp =
-                _decodedType.GetProperty("Payload", BindingFlags.Public | BindingFlags.Instance);
-
-            _decodedWantResponseProp =
-                _decodedType.GetProperty("WantResponse", BindingFlags.Public | BindingFlags.Instance);
-
-            _decodedDestProp =
-                _decodedType.GetProperty("Dest", BindingFlags.Public | BindingFlags.Instance);
-        }
-
-        if (_toRadioHeartbeatProp is not null)
-        {
-            var heartbeatType = _toRadioHeartbeatProp.PropertyType;
-            _heartbeatNonceProp =
-                heartbeatType.GetProperty("Nonce", BindingFlags.Public | BindingFlags.Instance);
-        }
+        return new ToRadio { Packet = packet };
     }
 
     private static byte[] CreateRouteDiscoveryPayload()
     {
-        var routeType = FindTypeByName("RouteDiscovery");
-        if (routeType is null)
-            return Array.Empty<byte>();
-
-        if (Activator.CreateInstance(routeType) is not IMessage msg)
-            return Array.Empty<byte>();
-
-        return msg.ToByteArray();
+        var route = new RouteDiscovery();
+        return route.ToByteArray();
     }
 
-    private static Type? FindTypeByName(string typeName)
+    public static string NormalizeTextPayload(string? text, int maxPayloadBytes = MaxTextPayloadBytes)
     {
-        return AppDomain.CurrentDomain.GetAssemblies()
-            .Select(a =>
-            {
-                try { return a.GetTypes(); }
-                catch { return Array.Empty<Type>(); }
-            })
-            .SelectMany(t => t)
-            .FirstOrDefault(t => t.IsClass && t.Name == typeName);
+        var input = text ?? "";
+        if (input.Length == 0 || maxPayloadBytes <= 0)
+            return "";
+
+        if (Encoding.UTF8.GetByteCount(input) <= maxPayloadBytes)
+            return input;
+
+        var sb = new StringBuilder(input.Length);
+        var byteCount = 0;
+        var elements = StringInfo.GetTextElementEnumerator(input);
+        while (elements.MoveNext())
+        {
+            var element = elements.GetTextElement() ?? "";
+            if (element.Length == 0)
+                continue;
+
+            var elementBytes = Encoding.UTF8.GetByteCount(element);
+            if (byteCount + elementBytes > maxPayloadBytes)
+                break;
+
+            sb.Append(element);
+            byteCount += elementBytes;
+        }
+
+        return sb.ToString();
     }
 }

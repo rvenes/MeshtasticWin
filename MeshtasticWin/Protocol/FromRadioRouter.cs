@@ -4,8 +4,10 @@ using System.Linq;
 using System.Reflection;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using MeshtasticWin.Services;
 using MeshtasticWin.Models;
+using Meshtastic.Protobufs;
 
 namespace MeshtasticWin.Protocol;
 
@@ -44,6 +46,9 @@ public static class FromRadioRouter
         [43] = "Heltec V3"
     };
 
+    private static readonly Lazy<Dictionary<int, string>> HardwareModelFriendlyNamesFromEnumById =
+        new(BuildHardwareModelFriendlyNamesFromEnumById);
+
     public static bool TryHandle(byte[] payload, Action<Action> runOnUi, Action<string> logToUi, out string summary)
         => TryApplyFromRadio(payload, runOnUi, logToUi, out summary);
 
@@ -53,90 +58,46 @@ public static class FromRadioRouter
 
         try
         {
-            var fromRadioType = FindTypeByName("FromRadio");
-            if (fromRadioType is null)
+            var fromRadio = FromRadio.Parser.ParseFrom(frame);
+            switch (fromRadio.PayloadVariantCase)
             {
-                summary = "FromRadio type not found";
-                return false;
-            }
-
-            var parserProp = fromRadioType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static);
-            var parser = parserProp?.GetValue(null);
-            if (parser is null)
-            {
-                summary = "FromRadio.Parser missing";
-                return false;
-            }
-
-            var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-            var fromRadioObj = parseFrom?.Invoke(parser, new object[] { frame });
-            if (fromRadioObj is null)
-            {
-                summary = "ParseFrom returned null";
-                return false;
-            }
-
-            var variantCaseName = TryGetFromRadioVariantCaseName(fromRadioObj);
-            if (!string.IsNullOrWhiteSpace(variantCaseName) && !IsNoneVariantCase(variantCaseName))
-            {
-                var normalizedCase = NormalizeToken(variantCaseName);
-                TryGetFromRadioVariantObject(fromRadioObj, variantCaseName, out var variantObj);
-
-                if (normalizedCase == "packet" && variantObj is not null)
-                {
+                case FromRadio.PayloadVariantOneofCase.Packet:
                     summary = "Packet";
-                    runOnUi(() => ApplyPacketObject(variantObj, logToUi));
+                    runOnUi(() => ApplyPacketObject(fromRadio.Packet, logToUi));
                     return true;
-                }
 
-                if (normalizedCase == "nodeinfo" && variantObj is not null)
-                {
+                case FromRadio.PayloadVariantOneofCase.NodeInfo:
                     summary = "NodeInfo";
-                    runOnUi(() => ApplyNodeInfoObject(variantObj, logToUi));
+                    runOnUi(() => ApplyNodeInfoObject(fromRadio.NodeInfo, logToUi));
                     return true;
-                }
 
-                if (normalizedCase == "myinfo" && variantObj is not null)
-                {
+                case FromRadio.PayloadVariantOneofCase.MyInfo:
                     summary = "MyInfo";
-                    runOnUi(() => ApplyMyInfoObject(variantObj));
+                    runOnUi(() => ApplyMyInfoObject(fromRadio.MyInfo));
                     return true;
-                }
 
-                if (normalizedCase == "metadata" && variantObj is not null)
-                {
+                case FromRadio.PayloadVariantOneofCase.Metadata:
                     summary = "DeviceMetadata";
-                    runOnUi(() => ApplyDeviceMetadataObject(variantObj));
+                    runOnUi(() => ApplyDeviceMetadataObject(fromRadio.Metadata));
                     return true;
-                }
 
-                summary = BuildReadableVariantSummary(variantCaseName, variantObj);
-                return true;
+                case FromRadio.PayloadVariantOneofCase.QueueStatus:
+                    summary = "QueueStatus";
+                    runOnUi(() => ApplyQueueStatusObject(fromRadio.QueueStatus, logToUi));
+                    return true;
+
+                case FromRadio.PayloadVariantOneofCase.LogRecord:
+                    summary = BuildReadableVariantSummary("LogRecord", fromRadio.LogRecord);
+                    return true;
+
+                case FromRadio.PayloadVariantOneofCase.None:
+                    summary = "other";
+                    return true;
+
+                default:
+                    summary = fromRadio.PayloadVariantCase.ToString();
+                    return true;
             }
-
-            var packetProp = fromRadioType.GetProperty("Packet", BindingFlags.Public | BindingFlags.Instance);
-            var packetObj = packetProp?.GetValue(fromRadioObj);
-            if (packetObj is not null)
-            {
-                summary = "Packet";
-                runOnUi(() => ApplyPacketObject(packetObj, logToUi));
-                return true;
-            }
-
-            var nodeInfoProp =
-                fromRadioType.GetProperty("NodeInfo", BindingFlags.Public | BindingFlags.Instance) ??
-                fromRadioType.GetProperty("Nodeinfo", BindingFlags.Public | BindingFlags.Instance);
-
-            var nodeInfoObj = nodeInfoProp?.GetValue(fromRadioObj);
-            if (nodeInfoObj is not null)
-            {
-                summary = "NodeInfo";
-                runOnUi(() => ApplyNodeInfoObject(nodeInfoObj, logToUi));
-                return true;
-            }
-
-            summary = "other";
-            return true;
         }
         catch (Exception ex)
         {
@@ -350,40 +311,22 @@ public static class FromRadioRouter
     {
         text = "";
 
-        var compressedType = FindTypeByName("Compressed");
-        if (compressedType is null)
-            return false;
-
-        var parser = compressedType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-        if (parser is null)
-            return false;
-
-        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-        if (parseFrom is null)
-            return false;
-
-        object? compressedObj;
+        Compressed compressedObj;
         try
         {
-            compressedObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+            compressedObj = Compressed.Parser.ParseFrom(payloadBytes);
         }
         catch
         {
             return false;
         }
 
-        if (compressedObj is null)
+        var wrappedPortNum = (int)compressedObj.Portnum;
+        if (wrappedPortNum != 0 && wrappedPortNum != TextMessagePortNum)
             return false;
 
-        if (TryGetObj(compressedObj, "Portnum", out var wrappedPortObj) &&
-            wrappedPortObj is not null)
-        {
-            var wrappedPortNum = ConvertToInt(wrappedPortObj);
-            if (wrappedPortNum != -1 && wrappedPortNum != TextMessagePortNum)
-                return false;
-        }
-
-        if (!TryGetBytes(compressedObj, "Data", out var wrappedData) || wrappedData.Length == 0)
+        var wrappedData = compressedObj.Data?.ToByteArray() ?? Array.Empty<byte>();
+        if (wrappedData.Length == 0)
             return false;
 
         try
@@ -643,6 +586,22 @@ public static class FromRadioRouter
         }
     }
 
+    private static void ApplyQueueStatusObject(QueueStatus queueStatusObj, Action<string> logToUi)
+    {
+        var free = unchecked((int)queueStatusObj.Free);
+        var maxLen = unchecked((int)queueStatusObj.Maxlen);
+        var res = queueStatusObj.Res;
+        var meshPacketId = queueStatusObj.MeshPacketId;
+
+        RadioClient.Instance.ApplyQueueStatus(free, maxLen, res, meshPacketId);
+
+        if (res != 0)
+        {
+            var freeText = free.ToString(CultureInfo.InvariantCulture);
+            var maxText = maxLen.ToString(CultureInfo.InvariantCulture);
+            logToUi($"QueueStatus error: res={res} free={freeText}/{maxText} id=0x{meshPacketId:x8}");
+        }
+    }
     private static NodeLive EnsureNode(string idHex, uint nodeNum)
     {
         var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => string.Equals(n.IdHex, idHex, StringComparison.OrdinalIgnoreCase));
@@ -730,29 +689,10 @@ public static class FromRadioRouter
 
     private static bool TryParsePositionBytesAndApply(byte[] payloadBytes, uint fromNodeNum, string source, Action<string> logToUi, out string summary)
     {
-        summary = "Position type not found";
-        var positionType = FindTypeByName("Position");
-        if (positionType is null)
-            return false;
-
-        var parser = positionType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-        if (parser is null)
-        {
-            summary = "Position.Parser missing";
-            return false;
-        }
-
-        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-        if (parseFrom is null)
-        {
-            summary = "Position.Parser.ParseFrom(byte[]) missing";
-            return false;
-        }
-
-        object? posObj;
+        Position posObj;
         try
         {
-            posObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+            posObj = Position.Parser.ParseFrom(payloadBytes);
         }
         catch (Exception ex)
         {
@@ -760,30 +700,22 @@ public static class FromRadioRouter
             return false;
         }
 
-        if (posObj is null)
-        {
-            summary = "Position.ParseFrom returned null";
-            return false;
-        }
-
-        if (!TryGetInt(posObj, "LatitudeI", out var latI) || !TryGetInt(posObj, "LongitudeI", out var lonI))
+        if (!posObj.HasLatitudeI || !posObj.HasLongitudeI)
         {
             summary = "missing LatitudeI/LongitudeI";
             return false;
         }
 
-        double lat = latI / 1e7;
-        double lon = lonI / 1e7;
+        double lat = posObj.LatitudeI / 1e7;
+        double lon = posObj.LongitudeI / 1e7;
 
-        double? alt = null;
-        if (TryGetInt(posObj, "Altitude", out var altI))
-            alt = altI;
+        double? alt = posObj.HasAltitude ? posObj.Altitude : null;
 
         DateTime tsUtc = DateTime.UtcNow;
-        if (TryGetUInt(posObj, "Time", out var timeSec) && timeSec > 0)
-            tsUtc = DateTimeOffset.FromUnixTimeSeconds(timeSec).UtcDateTime;
-        else if (TryGetUInt(posObj, "Timestamp", out var tsSec) && tsSec > 0)
-            tsUtc = DateTimeOffset.FromUnixTimeSeconds(tsSec).UtcDateTime;
+        if (posObj.Time > 0)
+            tsUtc = DateTimeOffset.FromUnixTimeSeconds(posObj.Time).UtcDateTime;
+        else if (posObj.Timestamp > 0)
+            tsUtc = DateTimeOffset.FromUnixTimeSeconds(posObj.Timestamp).UtcDateTime;
 
         ApplyGpsToNode(fromNodeNum, lat, lon, tsUtc, alt, source, logToUi, out summary);
         return true;
@@ -817,31 +749,10 @@ public static class FromRadioRouter
         if (payloadBytes is null || payloadBytes.Length == 0)
             return false;
 
-        var telemetryType = FindTypeByName("Telemetry");
-        if (telemetryType is null)
-        {
-            summary = "Telemetry type not found";
-            return false;
-        }
-
-        var parser = telemetryType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-        if (parser is null)
-        {
-            summary = "Telemetry.Parser missing";
-            return false;
-        }
-
-        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-        if (parseFrom is null)
-        {
-            summary = "Telemetry.Parser.ParseFrom(byte[]) missing";
-            return false;
-        }
-
-        object? telemetryObj;
+        Telemetry telemetryObj;
         try
         {
-            telemetryObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+            telemetryObj = Telemetry.Parser.ParseFrom(payloadBytes);
         }
         catch (Exception ex)
         {
@@ -849,41 +760,41 @@ public static class FromRadioRouter
             return false;
         }
 
-        if (telemetryObj is null)
-        {
-            summary = "Telemetry.ParseFrom returned null";
-            return false;
-        }
-
         var receiveTimeUtc = DateTime.UtcNow;
         var tsUtc = receiveTimeUtc;
-        if (TryGetUInt(telemetryObj, "Time", out var timeSec))
-            tsUtc = NormalizeTelemetryTimestamp(timeSec, receiveTimeUtc);
+        if (telemetryObj.Time > 0)
+            tsUtc = NormalizeTelemetryTimestamp(telemetryObj.Time, receiveTimeUtc);
 
         var fromIdHex = $"0x{fromNodeNum:x8}";
         var logType = (NodeLogType?)null;
         var label = "";
         object? metricsObj = null;
 
-        if (TryGetObj(telemetryObj, "DeviceMetrics", out metricsObj) && metricsObj is not null)
+        switch (telemetryObj.VariantCase)
         {
-            logType = NodeLogType.DeviceMetrics;
-            label = "device";
-        }
-        else if (TryGetObj(telemetryObj, "EnvironmentMetrics", out metricsObj) && metricsObj is not null)
-        {
-            logType = NodeLogType.EnvironmentMetrics;
-            label = "environment";
-        }
-        else if (TryGetObj(telemetryObj, "PowerMetrics", out metricsObj) && metricsObj is not null)
-        {
-            logType = NodeLogType.PowerMetrics;
-            label = "power";
-        }
-        else if (TryGetObj(telemetryObj, "AirQualityMetrics", out metricsObj) && metricsObj is not null)
-        {
-            logType = NodeLogType.EnvironmentMetrics;
-            label = "air_quality";
+            case Telemetry.VariantOneofCase.DeviceMetrics:
+                metricsObj = telemetryObj.DeviceMetrics;
+                logType = NodeLogType.DeviceMetrics;
+                label = "device";
+                break;
+
+            case Telemetry.VariantOneofCase.EnvironmentMetrics:
+                metricsObj = telemetryObj.EnvironmentMetrics;
+                logType = NodeLogType.EnvironmentMetrics;
+                label = "environment";
+                break;
+
+            case Telemetry.VariantOneofCase.PowerMetrics:
+                metricsObj = telemetryObj.PowerMetrics;
+                logType = NodeLogType.PowerMetrics;
+                label = "power";
+                break;
+
+            case Telemetry.VariantOneofCase.AirQualityMetrics:
+                metricsObj = telemetryObj.AirQualityMetrics;
+                logType = NodeLogType.EnvironmentMetrics;
+                label = "air_quality";
+                break;
         }
 
         if (logType is null || metricsObj is null)
@@ -980,41 +891,14 @@ public static class FromRadioRouter
         if (payloadBytes is null || payloadBytes.Length == 0)
             return false;
 
-        var routeType = FindTypeByName("RouteDiscovery");
-        if (routeType is null)
-        {
-            summary = "RouteDiscovery type not found";
-            return false;
-        }
-
-        var parser = routeType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-        if (parser is null)
-        {
-            summary = "RouteDiscovery.Parser missing";
-            return false;
-        }
-
-        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-        if (parseFrom is null)
-        {
-            summary = "RouteDiscovery.Parser.ParseFrom(byte[]) missing";
-            return false;
-        }
-
-        object? routeObj;
+        RouteDiscovery routeObj;
         try
         {
-            routeObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+            routeObj = RouteDiscovery.Parser.ParseFrom(payloadBytes);
         }
         catch (Exception ex)
         {
             summary = $"RouteDiscovery.ParseFrom exception: {ex.GetType().Name}: {ex.Message}";
-            return false;
-        }
-
-        if (routeObj is null)
-        {
-            summary = "RouteDiscovery.ParseFrom returned null";
             return false;
         }
 
@@ -1068,31 +952,10 @@ public static class FromRadioRouter
         if (payloadBytes is null || payloadBytes.Length == 0)
             return false;
 
-        var routingType = FindTypeByName("Routing");
-        if (routingType is null)
-        {
-            summary = "Routing type not found";
-            return false;
-        }
-
-        var parser = routingType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-        if (parser is null)
-        {
-            summary = "Routing.Parser missing";
-            return false;
-        }
-
-        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-        if (parseFrom is null)
-        {
-            summary = "Routing.Parser.ParseFrom(byte[]) missing";
-            return false;
-        }
-
-        object? routingObj;
+        Routing routingObj;
         try
         {
-            routingObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+            routingObj = Routing.Parser.ParseFrom(payloadBytes);
         }
         catch (Exception ex)
         {
@@ -1100,39 +963,19 @@ public static class FromRadioRouter
             return false;
         }
 
-        if (routingObj is null)
-        {
-            summary = "Routing.ParseFrom returned null";
-            return false;
-        }
-
         object? routeObj = null;
         var variant = "";
-        var variantCaseProp = routingType.GetProperty("VariantCase", BindingFlags.Public | BindingFlags.Instance);
-        if (variantCaseProp?.GetValue(routingObj) is Enum variantCase)
+        switch (routingObj.VariantCase)
         {
-            var variantText = variantCase.ToString();
-            if (string.Equals(variantText, "RouteRequest", StringComparison.OrdinalIgnoreCase))
-            {
-                routeObj = routingType.GetProperty("RouteRequest", BindingFlags.Public | BindingFlags.Instance)?.GetValue(routingObj);
+            case Routing.VariantOneofCase.RouteRequest:
+                routeObj = routingObj.RouteRequest;
                 variant = "route_request";
-            }
-            else if (string.Equals(variantText, "RouteReply", StringComparison.OrdinalIgnoreCase))
-            {
-                routeObj = routingType.GetProperty("RouteReply", BindingFlags.Public | BindingFlags.Instance)?.GetValue(routingObj);
-                variant = "route_reply";
-            }
-        }
+                break;
 
-        if (routeObj is null && TryGetObj(routingObj, "RouteRequest", out var routeRequestObj))
-        {
-            routeObj = routeRequestObj;
-            variant = "route_request";
-        }
-        else if (routeObj is null && TryGetObj(routingObj, "RouteReply", out var routeReplyObj))
-        {
-            routeObj = routeReplyObj;
-            variant = "route_reply";
+            case Routing.VariantOneofCase.RouteReply:
+                routeObj = routingObj.RouteReply;
+                variant = "route_reply";
+                break;
         }
 
         if (routeObj is null)
@@ -1360,6 +1203,24 @@ public static class FromRadioRouter
         if (hwObj is null)
             return "";
 
+        if (hwObj.GetType().IsEnum)
+        {
+            if (TryGetEnumNumericValue(hwObj, out var enumNumeric))
+            {
+                var mappedFromNumeric = ResolveHardwareModelFromNumeric(enumNumeric);
+                if (!string.IsNullOrWhiteSpace(mappedFromNumeric))
+                    return mappedFromNumeric;
+            }
+
+            if (TryGetEnumOriginalName(hwObj, out var originalEnumName))
+            {
+                if (HardwareModelFriendlyNames.TryGetValue(originalEnumName, out var mappedFromName))
+                    return mappedFromName;
+
+                return HumanizeToken(originalEnumName);
+            }
+        }
+
         if (hwObj is int i)
             return ResolveHardwareModelFromNumeric(i);
         if (hwObj is uint u)
@@ -1394,12 +1255,18 @@ public static class FromRadioRouter
         if (HardwareModelFriendlyNamesById.TryGetValue(numericValue, out var mapped))
             return mapped;
 
+        if (HardwareModelFriendlyNamesFromEnumById.Value.TryGetValue(numericValue, out var generatedMapped))
+            return generatedMapped;
+
         return numericValue.ToString(CultureInfo.InvariantCulture);
     }
 
     private static string HumanizeToken(string raw)
     {
-        var parts = raw.Split(new[] { '_', '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var prepared = Regex.Replace(raw, "(?<=[a-z0-9])(?=[A-Z])", " ");
+        prepared = Regex.Replace(prepared, "(?<=[A-Z])(?=[A-Z][a-z])", " ");
+
+        var parts = prepared.Split(new[] { '_', '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
             return raw;
 
@@ -1412,6 +1279,103 @@ public static class FromRadioRouter
         }));
     }
 
+    private static Dictionary<int, string> BuildHardwareModelFriendlyNamesFromEnumById()
+    {
+        var result = new Dictionary<int, string>();
+        var hardwareModelEnumType = typeof(HardwareModel);
+
+        var values = Enum.GetValues(hardwareModelEnumType);
+        foreach (var value in values)
+        {
+            if (value is null)
+                continue;
+
+            int numericValue;
+            try { numericValue = Convert.ToInt32(value, CultureInfo.InvariantCulture); }
+            catch { continue; }
+
+            if (numericValue <= 0)
+                continue;
+
+            var enumName = value.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(enumName))
+                continue;
+
+            var member = hardwareModelEnumType.GetMember(enumName, BindingFlags.Public | BindingFlags.Static).FirstOrDefault();
+            var originalName = member is null
+                ? enumName
+                : GetEnumOriginalName(member) ?? enumName;
+
+            if (HardwareModelFriendlyNames.TryGetValue(originalName, out var mapped))
+            {
+                result[numericValue] = mapped;
+                continue;
+            }
+
+            result[numericValue] = HumanizeToken(originalName);
+        }
+
+        return result;
+    }
+
+    private static bool TryGetEnumNumericValue(object enumObj, out int numericValue)
+    {
+        numericValue = 0;
+        if (enumObj is null || !enumObj.GetType().IsEnum)
+            return false;
+
+        try
+        {
+            numericValue = Convert.ToInt32(enumObj, CultureInfo.InvariantCulture);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetEnumOriginalName(object enumObj, out string originalName)
+    {
+        originalName = "";
+        if (enumObj is null)
+            return false;
+
+        var enumType = enumObj.GetType();
+        if (!enumType.IsEnum)
+            return false;
+
+        var enumName = enumObj.ToString();
+        if (string.IsNullOrWhiteSpace(enumName))
+            return false;
+
+        var member = enumType.GetMember(enumName, BindingFlags.Public | BindingFlags.Static).FirstOrDefault();
+        var candidate = member is null ? null : GetEnumOriginalName(member);
+        if (!string.IsNullOrWhiteSpace(candidate))
+        {
+            originalName = candidate;
+            return true;
+        }
+
+        originalName = enumName;
+        return true;
+    }
+
+    private static string? GetEnumOriginalName(MemberInfo enumMember)
+    {
+        foreach (var attr in enumMember.GetCustomAttributes(inherit: false))
+        {
+            if (!string.Equals(attr.GetType().Name, "OriginalNameAttribute", StringComparison.Ordinal))
+                continue;
+
+            var nameProp = attr.GetType().GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
+            if (nameProp?.GetValue(attr) is string name && !string.IsNullOrWhiteSpace(name))
+                return name;
+        }
+
+        return null;
+    }
+
     private static string FormatProtoSingleLine(object obj)
     {
         var text = obj.ToString() ?? "";
@@ -1420,59 +1384,6 @@ public static class FromRadioRouter
 
         var parts = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
         return string.Join(" ", parts.Select(p => p.Trim())).Trim();
-    }
-
-    private static Type? FindTypeByName(string typeName)
-    {
-        return AppDomain.CurrentDomain.GetAssemblies()
-            .Select(a =>
-            {
-                try { return a.GetTypes(); }
-                catch { return Array.Empty<Type>(); }
-            })
-            .SelectMany(t => t)
-            .FirstOrDefault(t => t.IsClass && t.Name == typeName);
-    }
-
-    private static string? TryGetFromRadioVariantCaseName(object fromRadioObj)
-    {
-        var t = fromRadioObj.GetType();
-        var prop =
-            t.GetProperty("PayloadVariantCase", BindingFlags.Public | BindingFlags.Instance) ??
-            t.GetProperty("PayloadCase", BindingFlags.Public | BindingFlags.Instance) ??
-            t.GetProperty("VariantCase", BindingFlags.Public | BindingFlags.Instance);
-
-        return prop?.GetValue(fromRadioObj)?.ToString();
-    }
-
-    private static bool TryGetFromRadioVariantObject(object fromRadioObj, string variantCaseName, out object? value)
-    {
-        value = null;
-        var caseKey = NormalizeToken(variantCaseName);
-        if (string.IsNullOrWhiteSpace(caseKey))
-            return false;
-
-        var props = fromRadioObj.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        foreach (var p in props)
-        {
-            if (p.GetIndexParameters().Length != 0)
-                continue;
-
-            var key = NormalizeToken(p.Name);
-            if (key != caseKey)
-                continue;
-
-            value = p.GetValue(fromRadioObj);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsNoneVariantCase(string variantCaseName)
-    {
-        var key = NormalizeToken(variantCaseName);
-        return key is "none" or "payloadvariantnotset" or "notset" or "";
     }
 
     private static string BuildReadableVariantSummary(string variantCaseName, object? variantObj)

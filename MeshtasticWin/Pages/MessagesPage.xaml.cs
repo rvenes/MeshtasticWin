@@ -12,6 +12,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.ComponentModel;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
@@ -20,7 +21,8 @@ namespace MeshtasticWin.Pages;
 
 public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 {
-    private const int MaxMessageLength = 200;
+    private const int MaxMessageBytes = 200;
+    private bool _isAdjustingInputText;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ChatListItemVm> ChatListItems { get; } = new();
@@ -638,12 +640,15 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     }
 
     private void InputBox_TextChanged(object sender, TextChangedEventArgs e)
-        => UpdateMessageLengthCounter();
+    {
+        EnforceMessageByteLimit();
+        UpdateMessageLengthCounter();
+    }
 
     private void UpdateMessageLengthCounter()
     {
-        var currentLength = InputBox.Text?.Length ?? 0;
-        MessageLengthText.Text = $"{currentLength}/{MaxMessageLength}";
+        var byteCount = GetUtf8ByteCount(InputBox.Text ?? "");
+        MessageLengthText.Text = $"{byteCount}/{MaxMessageBytes} bytes";
     }
 
     private void InsertEmojiMenuItem_Click(object sender, RoutedEventArgs e)
@@ -667,8 +672,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             length = originalText.Length - start;
 
         var next = originalText.Remove(start, length).Insert(start, textToInsert);
-        if (next.Length > MaxMessageLength)
-            next = next[..MaxMessageLength];
+        next = TruncateToUtf8ByteLimit(next, MaxMessageBytes);
 
         InputBox.Text = next;
         var nextSelectionStart = start + textToInsert.Length;
@@ -701,8 +705,9 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(text))
             return;
 
-        if (text.Length > MaxMessageLength)
-            text = text[..MaxMessageLength];
+        text = TruncateToUtf8ByteLimit(text, MaxMessageBytes);
+        if (string.IsNullOrWhiteSpace(text))
+            return;
 
         InputBox.Text = "";
 
@@ -750,6 +755,68 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             MessageArchive.Append(local, channelName: "Primary");
         else
             MessageArchive.Append(local, dmPeerIdHex: peer);
+    }
+
+    private void EnforceMessageByteLimit()
+    {
+        if (_isAdjustingInputText)
+            return;
+
+        var current = InputBox.Text ?? "";
+        var limited = TruncateToUtf8ByteLimit(current, MaxMessageBytes);
+        if (string.Equals(current, limited, StringComparison.Ordinal))
+            return;
+
+        var selectionStart = Math.Max(0, InputBox.SelectionStart);
+
+        _isAdjustingInputText = true;
+        try
+        {
+            InputBox.Text = limited;
+            InputBox.SelectionStart = Math.Min(selectionStart, limited.Length);
+            InputBox.SelectionLength = 0;
+        }
+        finally
+        {
+            _isAdjustingInputText = false;
+        }
+    }
+
+    private static int GetUtf8ByteCount(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        return Encoding.UTF8.GetByteCount(text);
+    }
+
+    private static string TruncateToUtf8ByteLimit(string? text, int maxBytes)
+    {
+        if (string.IsNullOrEmpty(text) || maxBytes <= 0)
+            return "";
+
+        if (Encoding.UTF8.GetByteCount(text) <= maxBytes)
+            return text;
+
+        var sb = new StringBuilder(text.Length);
+        var byteCount = 0;
+        var elements = StringInfo.GetTextElementEnumerator(text);
+
+        while (elements.MoveNext())
+        {
+            var element = elements.GetTextElement() ?? "";
+            if (element.Length == 0)
+                continue;
+
+            var elementBytes = Encoding.UTF8.GetByteCount(element);
+            if (byteCount + elementBytes > maxBytes)
+                break;
+
+            sb.Append(element);
+            byteCount += elementBytes;
+        }
+
+        return sb.ToString();
     }
 
     private void MessageText_Loaded(object sender, RoutedEventArgs e)

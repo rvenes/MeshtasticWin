@@ -124,7 +124,6 @@
 	                <TextBox x:Name="InputBox"
 	                         PlaceholderText="Type a message..."
 	                         AcceptsReturn="False"
-	                         MaxLength="200"
 	                         TextChanged="InputBox_TextChanged"
 	                         KeyDown="InputBox_KeyDown"/>
 
@@ -149,7 +148,7 @@
 
                     <TextBlock Grid.Column="4"
                                x:Name="MessageLengthText"
-                               Text="0/200"
+                               Text="0/200 bytes"
                                Opacity="0.75"
                                VerticalAlignment="Center"/>
 

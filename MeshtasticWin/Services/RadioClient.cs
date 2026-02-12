@@ -17,6 +17,9 @@ public sealed class RadioClient
 
     private const int MaxLogLines = 500;
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan TxQueueSpaceWaitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TxQueueResultWaitTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan TxQueueStatusFreshWindow = TimeSpan.FromMinutes(2);
 
     private IRadioTransport? _transport;
     private readonly SerialTextDecoder _decoder = new();
@@ -38,6 +41,14 @@ public sealed class RadioClient
     private CancellationTokenSource? _heartbeatCts;
     private Task? _heartbeatTask;
     private uint _heartbeatNonce;
+    private readonly SemaphoreSlim _txSendGate = new(1, 1);
+    private readonly SemaphoreSlim _txQueueSpaceSignal = new(0, int.MaxValue);
+    private readonly object _txQueueLock = new();
+    private readonly Dictionary<uint, TaskCompletionSource<bool>> _pendingTxQueueResults = new();
+    private int? _txQueueFree;
+    private int? _txQueueMaxLen;
+    private DateTime _lastTxQueueStatusUtc;
+    private bool _hasTxQueueStatus;
 
     public bool IsConnected { get; private set; }
     public string? PortName { get; private set; }
@@ -47,6 +58,180 @@ public sealed class RadioClient
     public event Action? ConnectionChanged;
 
     private RadioClient() { }
+
+    public void ApplyQueueStatus(int? free, int? maxLen, int? res, uint meshPacketId)
+    {
+        TaskCompletionSource<bool>? completion = null;
+        bool result = true;
+
+        lock (_txQueueLock)
+        {
+            _hasTxQueueStatus = true;
+            _lastTxQueueStatusUtc = DateTime.UtcNow;
+
+            if (maxLen.HasValue && maxLen.Value >= 0)
+                _txQueueMaxLen = maxLen.Value;
+
+            if (free.HasValue)
+            {
+                _txQueueFree = Math.Max(0, free.Value);
+                if (_txQueueFree.Value > 0)
+                {
+                    try { _txQueueSpaceSignal.Release(); }
+                    catch (SemaphoreFullException) { }
+                }
+            }
+
+            if (meshPacketId != 0 && _pendingTxQueueResults.TryGetValue(meshPacketId, out var pending))
+            {
+                _pendingTxQueueResults.Remove(meshPacketId);
+                completion = pending;
+                result = !res.HasValue || res.Value == 0;
+            }
+        }
+
+        completion?.TrySetResult(result);
+    }
+
+    private void ResetTxQueueState(Exception? pendingFailure = null)
+    {
+        List<TaskCompletionSource<bool>> pending;
+        lock (_txQueueLock)
+        {
+            _txQueueFree = null;
+            _txQueueMaxLen = null;
+            _lastTxQueueStatusUtc = DateTime.MinValue;
+            _hasTxQueueStatus = false;
+            pending = new List<TaskCompletionSource<bool>>(_pendingTxQueueResults.Values);
+            _pendingTxQueueResults.Clear();
+        }
+
+        foreach (var tcs in pending)
+        {
+            if (pendingFailure is null)
+                tcs.TrySetCanceled();
+            else
+                tcs.TrySetException(pendingFailure);
+        }
+    }
+
+    private bool HasFreshQueueStatus()
+    {
+        lock (_txQueueLock)
+        {
+            if (!_hasTxQueueStatus)
+                return false;
+
+            return (DateTime.UtcNow - _lastTxQueueStatusUtc) <= TxQueueStatusFreshWindow;
+        }
+    }
+
+    private async Task WaitForTxQueueSpaceAsync()
+    {
+        if (!HasFreshQueueStatus())
+            return;
+
+        var deadlineUtc = DateTime.UtcNow + TxQueueSpaceWaitTimeout;
+        while (true)
+        {
+            int? free;
+            lock (_txQueueLock)
+                free = _txQueueFree;
+
+            if (!free.HasValue || free.Value > 0)
+                return;
+
+            var remaining = deadlineUtc - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                return;
+
+            var signaled = await _txQueueSpaceSignal.WaitAsync(remaining).ConfigureAwait(false);
+            if (!signaled)
+                return;
+        }
+    }
+
+    private async Task<bool> WaitForQueueResultAsync(uint packetId, TaskCompletionSource<bool> resultSource)
+    {
+        using var timeout = new CancellationTokenSource(TxQueueResultWaitTimeout);
+        try
+        {
+            return await resultSource.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_txQueueLock)
+            {
+                if (_pendingTxQueueResults.TryGetValue(packetId, out var current) &&
+                    ReferenceEquals(current, resultSource))
+                {
+                    _pendingTxQueueResults.Remove(packetId);
+                }
+            }
+
+            // If firmware does not report QueueStatus for this packet, fall back
+            // to transport-level success to avoid dropping legitimate sends.
+            return true;
+        }
+    }
+
+    private async Task SendPacketWithQueueControlAsync(byte[] framedPayload, uint packetId)
+    {
+        var transport = _transport;
+        if (transport is null || !IsConnected)
+            throw new InvalidOperationException("Not connected");
+
+        await _txSendGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await WaitForTxQueueSpaceAsync().ConfigureAwait(false);
+
+            TaskCompletionSource<bool>? queueResult = null;
+            if (packetId != 0 && HasFreshQueueStatus())
+            {
+                queueResult = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                lock (_txQueueLock)
+                    _pendingTxQueueResults[packetId] = queueResult;
+            }
+
+            try
+            {
+                await transport.SendAsync(framedPayload).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (queueResult is not null)
+                {
+                    lock (_txQueueLock)
+                    {
+                        if (_pendingTxQueueResults.TryGetValue(packetId, out var current) &&
+                            ReferenceEquals(current, queueResult))
+                        {
+                            _pendingTxQueueResults.Remove(packetId);
+                        }
+                    }
+                }
+                throw;
+            }
+
+            if (queueResult is not null)
+            {
+                lock (_txQueueLock)
+                {
+                    if (_txQueueFree.HasValue && _txQueueFree.Value > 0)
+                        _txQueueFree--;
+                }
+
+                var accepted = await WaitForQueueResultAsync(packetId, queueResult).ConfigureAwait(false);
+                if (!accepted)
+                    throw new IOException($"Radio queue rejected packet 0x{packetId:x8}.");
+            }
+        }
+        finally
+        {
+            _txSendGate.Release();
+        }
+    }
 
     public void AddLogFromUiThread(string line)
     {
@@ -190,6 +375,7 @@ public sealed class RadioClient
 
         _transportLogHandler = null;
         _transportBytesHandler = null;
+        ResetTxQueueState(new IOException("Disconnected."));
 
         StopHeartbeatPump();
 
@@ -226,6 +412,7 @@ public sealed class RadioClient
 
         Interlocked.Exchange(ref _disconnecting, 0);
         StopHeartbeatPump();
+        ResetTxQueueState();
 
         PortName = endpointName;
         _transport = transport;
@@ -260,6 +447,7 @@ public sealed class RadioClient
 
             _transportLogHandler = null;
             _transportBytesHandler = null;
+            ResetTxQueueState(new IOException("Connection failed."));
             StopHeartbeatPump();
             StopRxPump();
             _transport = null;
@@ -454,9 +642,6 @@ public sealed class RadioClient
             if (Volatile.Read(ref _disconnecting) != 0)
                 return;
 
-            // Capture packet-to-destination metadata even for lines we don't show in UI.
-            try { MeshDebugLineParser.CapturePacketMetadata(line); } catch { }
-
             if (!LooksLikeDebugText(line))
                 continue;
 
@@ -484,8 +669,7 @@ public sealed class RadioClient
         if (!IsConnected || _transport is null)
             throw new InvalidOperationException("Not connected");
 
-        text ??= "";
-        text = text.Trim();
+        text = ToRadioFactory.NormalizeTextPayload((text ?? "").Trim(), ToRadioFactory.MaxTextPayloadBytes);
         if (text.Length == 0)
             return 0;
 
@@ -504,7 +688,7 @@ public sealed class RadioClient
 
         var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
 
-        await _transport.SendAsync(framed);
+        await SendPacketWithQueueControlAsync(framed, packetId);
         return packetId;
     }
 
@@ -515,7 +699,7 @@ public sealed class RadioClient
 
         var msg = ToRadioFactory.CreateNodeInfoRequest(toNodeNum, out var packetId);
         var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
-        await _transport.SendAsync(framed);
+        await SendPacketWithQueueControlAsync(framed, packetId);
         return packetId;
     }
 
@@ -526,7 +710,7 @@ public sealed class RadioClient
 
         var msg = ToRadioFactory.CreatePositionRequest(toNodeNum, out var packetId);
         var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
-        await _transport.SendAsync(framed);
+        await SendPacketWithQueueControlAsync(framed, packetId);
         return packetId;
     }
 
@@ -537,7 +721,7 @@ public sealed class RadioClient
 
         var msg = ToRadioFactory.CreateTraceRouteRequest(toNodeNum, out var packetId);
         var framed = MeshtasticWire.Wrap((Google.Protobuf.IMessage)msg);
-        await _transport.SendAsync(framed);
+        await SendPacketWithQueueControlAsync(framed, packetId);
         return packetId;
     }
 
@@ -578,13 +762,11 @@ public sealed class RadioClient
         if (s.StartsWith("TRACE", StringComparison.OrdinalIgnoreCase)) return true;
         if (s.StartsWith("INFO", StringComparison.OrdinalIgnoreCase))
         {
-            if (line.Contains("Received text msg", StringComparison.OrdinalIgnoreCase)) return true;
             if (line.Contains("ToPhone queue is full", StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
 
         if (line.Contains("ToPhone queue is full", StringComparison.OrdinalIgnoreCase)) return true;
-        if (line.Contains("Received text msg", StringComparison.OrdinalIgnoreCase)) return true;
 
         return false;
     }
