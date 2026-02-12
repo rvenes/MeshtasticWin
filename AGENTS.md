@@ -89,6 +89,43 @@ Then provide the GitHub URL to open a PR (or use `gh pr create` only if GitHub C
      - git pull
      - git branch -d feature/<name>
 
+## Manual approval before commit & push (mandatory)
+
+After implementing changes and successfully validating the build/tests:
+
+1. STOP before running:
+   - git add
+   - git commit
+   - git push
+
+2. Provide a concise summary including:
+   - Files changed
+   - What was implemented
+   - Build/test status
+   - Any assumptions or UI decisions
+
+3. Clearly instruct the user how to proceed by printing exactly:
+
+To continue, reply with:
+Approved – proceed with commit and push
+
+4. Only after the user replies exactly:
+
+Approved – proceed with commit and push
+
+Then execute the standard Git workflow:
+
+- git switch main
+- git pull
+- git switch -c feature/<name>
+- git add -A
+- git commit -m "<English technical message>"
+- git push -u origin feature/<name>
+
+Then provide the GitHub PR link.
+
+Never push automatically without explicit approval.
+
 ## Environment assumptions
 
 - Windows 11

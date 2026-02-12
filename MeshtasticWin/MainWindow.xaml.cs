@@ -12,11 +12,20 @@ namespace MeshtasticWin;
 
 public sealed partial class MainWindow : Window
 {
+    private const int MinimumWindowWidth = 1320;
+    private const int MinimumWindowHeight = 860;
+    private const int InitialWindowWidth = 1440;
+    private const int InitialWindowHeight = 900;
+
+    private AppWindow? _appWindow;
+    private bool _enforcingMinimumWindowSize;
+
     public MainWindow()
     {
         InitializeComponent();
         Closed += MainWindow_Closed;
-        SetInitialWindowSize(1200, 800);
+        InitializeWindowSizing();
+        SetInitialWindowSize(InitialWindowWidth, InitialWindowHeight);
         RadioClient.Instance.ConnectionChanged += OnConnectionChanged;
         AppState.ConnectedNodeChanged += OnConnectionChanged;
         AppState.Nodes.CollectionChanged += Nodes_CollectionChanged;
@@ -41,10 +50,43 @@ public sealed partial class MainWindow : Window
 
     private void SetInitialWindowSize(int width, int height)
     {
+        if (_appWindow is null)
+            return;
+
+        var targetWidth = Math.Max(width, MinimumWindowWidth);
+        var targetHeight = Math.Max(height, MinimumWindowHeight);
+        _appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, targetHeight));
+    }
+
+    private void InitializeWindowSizing()
+    {
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
+        _appWindow = AppWindow.GetFromWindowId(windowId);
+        _appWindow.Changed += AppWindow_Changed;
+    }
+
+    private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!args.DidSizeChange || _enforcingMinimumWindowSize)
+            return;
+
+        var size = sender.Size;
+        var targetWidth = Math.Max(size.Width, MinimumWindowWidth);
+        var targetHeight = Math.Max(size.Height, MinimumWindowHeight);
+
+        if (targetWidth == size.Width && targetHeight == size.Height)
+            return;
+
+        try
+        {
+            _enforcingMinimumWindowSize = true;
+            sender.Resize(new Windows.Graphics.SizeInt32(targetWidth, targetHeight));
+        }
+        finally
+        {
+            _enforcingMinimumWindowSize = false;
+        }
     }
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -74,6 +116,9 @@ public sealed partial class MainWindow : Window
 
     private async void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        if (_appWindow is not null)
+            _appWindow.Changed -= AppWindow_Changed;
+
         RadioClient.Instance.ConnectionChanged -= OnConnectionChanged;
         AppState.ConnectedNodeChanged -= OnConnectionChanged;
         AppState.Nodes.CollectionChanged -= Nodes_CollectionChanged;
