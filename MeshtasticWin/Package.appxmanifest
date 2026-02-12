@@ -10,7 +10,7 @@
   <Identity
     Name="6776e922-3fbf-4030-8d88-8bf894d6ee29"
     Publisher="CN=rune"
-    Version="1.0.0.0" />
+    Version="1.1.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="6776e922-3fbf-4030-8d88-8bf894d6ee29" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
