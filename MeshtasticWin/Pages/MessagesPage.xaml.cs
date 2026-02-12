@@ -20,6 +20,8 @@ namespace MeshtasticWin.Pages;
 
 public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 {
+    private const int MaxMessageLength = 200;
+
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ChatListItemVm> ChatListItems { get; } = new();
     public ObservableCollection<ChatListItemVm> VisibleChatItems { get; } = new();
@@ -119,6 +121,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         RebuildVisibleChats();
         ApplyMessageVisibilityToAll();
         SyncListToActiveChat();
+        UpdateMessageLengthCounter();
         OnChanged(nameof(ActiveChatTitle));
     }
 
@@ -634,6 +637,49 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void InputBox_TextChanged(object sender, TextChangedEventArgs e)
+        => UpdateMessageLengthCounter();
+
+    private void UpdateMessageLengthCounter()
+    {
+        var currentLength = InputBox.Text?.Length ?? 0;
+        MessageLengthText.Text = $"{currentLength}/{MaxMessageLength}";
+    }
+
+    private void InsertEmojiMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item || string.IsNullOrWhiteSpace(item.Text))
+            return;
+
+        InsertTextAtCursor(item.Text);
+    }
+
+    private void InsertTextAtCursor(string textToInsert)
+    {
+        var originalText = InputBox.Text ?? "";
+        var start = Math.Max(0, InputBox.SelectionStart);
+        var length = Math.Max(0, InputBox.SelectionLength);
+
+        if (start > originalText.Length)
+            start = originalText.Length;
+
+        if (start + length > originalText.Length)
+            length = originalText.Length - start;
+
+        var next = originalText.Remove(start, length).Insert(start, textToInsert);
+        if (next.Length > MaxMessageLength)
+            next = next[..MaxMessageLength];
+
+        InputBox.Text = next;
+        var nextSelectionStart = start + textToInsert.Length;
+        if (nextSelectionStart > next.Length)
+            nextSelectionStart = next.Length;
+
+        InputBox.SelectionStart = nextSelectionStart;
+        InputBox.SelectionLength = 0;
+        _ = InputBox.Focus(FocusState.Programmatic);
+    }
+
     private static bool TryParseNodeNumFromHex(string idHex, out uint nodeNum)
     {
         nodeNum = 0;
@@ -654,6 +700,9 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         var text = InputBox.Text?.Trim();
         if (string.IsNullOrWhiteSpace(text))
             return;
+
+        if (text.Length > MaxMessageLength)
+            text = text[..MaxMessageLength];
 
         InputBox.Text = "";
 

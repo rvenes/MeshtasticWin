@@ -63,6 +63,11 @@
             <ListView Grid.Row="2"
                       x:Name="MessagesList"
                       ItemsSource="{x:Bind SelectedChatMessages, Mode=OneWay}">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    </Style>
+                </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:MessageVm">
                         <StackPanel Spacing="4" Padding="10"
@@ -72,7 +77,7 @@
 	                                <TextBlock Text="{x:Bind When}" Opacity="0.7"/>
 	                            </StackPanel>
 
-	                            <StackPanel Orientation="Horizontal" Spacing="6">
+	                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="6">
 	                                <!-- ✓ (heard) -->
 	                                <FontIcon Glyph="&#xE73E;"
 	                                          Foreground="Green"
@@ -81,11 +86,13 @@
 
 	                                <!-- ✓✓ (delivered) -->
 	                                <FontIcon Glyph="&#xE73E;"
+                                              Grid.Column="1"
 	                                          Foreground="Green"
 	                                          FontFamily="Segoe MDL2 Assets"
 	                                          Visibility="{x:Bind DeliveredVisible}" />
 
                                 <RichTextBlock IsTextSelectionEnabled="True"
+                                               Grid.Column="2"
                                                TextWrapping="Wrap"
                                                Loaded="MessageText_Loaded"
                                                DataContextChanged="MessageText_DataContextChanged"
@@ -96,7 +103,7 @@
                                         </MenuFlyout>
                                     </RichTextBlock.ContextFlyout>
                                 </RichTextBlock>
-                            </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </DataTemplate>
                 </ListView.ItemTemplate>
@@ -107,15 +114,46 @@
 	                <Grid.ColumnDefinitions>
 	                    <ColumnDefinition Width="*"/>
 	                    <ColumnDefinition Width="12"/>
-	                    <ColumnDefinition Width="160"/>
+	                    <ColumnDefinition Width="46"/>
+	                    <ColumnDefinition Width="8"/>
+	                    <ColumnDefinition Width="Auto"/>
+	                    <ColumnDefinition Width="8"/>
+	                    <ColumnDefinition Width="96"/>
 	                </Grid.ColumnDefinitions>
 
 	                <TextBox x:Name="InputBox"
 	                         PlaceholderText="Type a message..."
 	                         AcceptsReturn="False"
+	                         MaxLength="200"
+	                         TextChanged="InputBox_TextChanged"
 	                         KeyDown="InputBox_KeyDown"/>
 
-	                <Button Grid.Column="2"
+                    <Button Grid.Column="2"
+                            Content="😊"
+                            ToolTipService.ToolTip="Insert emoji">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="😀" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="😂" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="🙂" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="😍" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="👍" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="🙏" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="❤️" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="🔥" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="🎉" Click="InsertEmojiMenuItem_Click"/>
+                                <MenuFlyoutItem Text="🇳🇴" Click="InsertEmojiMenuItem_Click"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+
+                    <TextBlock Grid.Column="4"
+                               x:Name="MessageLengthText"
+                               Text="0/200"
+                               Opacity="0.75"
+                               VerticalAlignment="Center"/>
+
+	                <Button Grid.Column="6"
 	                        Content="Send"
 	                        Click="Send_Click"/>
 	            </Grid>
