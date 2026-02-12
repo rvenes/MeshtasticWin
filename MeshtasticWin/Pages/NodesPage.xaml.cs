@@ -102,6 +102,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedLastHeardText));
             OnChanged(nameof(SelectedPosText));
             OnChanged(nameof(SelectedShortNameText));
+            OnChanged(nameof(SelectedUserIdText));
+            OnChanged(nameof(SelectedPublicKeyText));
+            OnChanged(nameof(SelectedFirmwareVersionText));
+            OnChanged(nameof(SelectedRoleText));
+            OnChanged(nameof(SelectedUptimeText));
+            OnChanged(nameof(SelectedFirstHeardText));
+            OnChanged(nameof(SelectedHardwareModelText));
             OnChanged(nameof(HasSelectedPosition));
             OnChanged(nameof(IsTraceRouteEnabled));
             OnChanged(nameof(TraceRouteButtonText));
@@ -167,6 +174,70 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             return string.IsNullOrWhiteSpace(Selected.ShortName) ? "—" : Selected.ShortName;
         }
     }
+
+    public string SelectedUserIdText
+    {
+        get
+        {
+            if (Selected is null)
+                return "—";
+
+            var name = !string.IsNullOrWhiteSpace(Selected.LongName)
+                ? Selected.LongName
+                : !string.IsNullOrWhiteSpace(Selected.ShortName)
+                    ? Selected.ShortName
+                    : "";
+
+            if (!string.IsNullOrWhiteSpace(Selected.UserId))
+                return string.IsNullOrWhiteSpace(name) ? Selected.UserId : $"{Selected.UserId} ({name})";
+
+            return string.IsNullOrWhiteSpace(name) ? "—" : name;
+        }
+    }
+
+    public string SelectedPublicKeyText =>
+        Selected is null || string.IsNullOrWhiteSpace(Selected.PublicKey)
+            ? "—"
+            : Selected.PublicKey;
+
+    public string SelectedFirmwareVersionText =>
+        Selected is null || string.IsNullOrWhiteSpace(Selected.FirmwareVersion)
+            ? "—"
+            : Selected.FirmwareVersion;
+
+    public string SelectedRoleText =>
+        Selected is null || string.IsNullOrWhiteSpace(Selected.Role)
+            ? "—"
+            : Selected.Role;
+
+    public string SelectedUptimeText
+    {
+        get
+        {
+            if (Selected?.UptimeSeconds is not uint uptime || uptime == 0)
+                return "—";
+
+            return FormatDuration(TimeSpan.FromSeconds(uptime));
+        }
+    }
+
+    public string SelectedFirstHeardText
+    {
+        get
+        {
+            if (Selected is null || Selected.FirstHeardUtc == DateTime.MinValue)
+                return "—";
+
+            var local = Selected.FirstHeardUtc.ToLocalTime();
+            var relative = FormatRelativeAge(Selected.FirstHeardUtc);
+            return $"{local:yyyy.MM.dd HH:mm:ss} ({relative})";
+        }
+    }
+
+    public string SelectedHardwareModelText =>
+        Selected is null || string.IsNullOrWhiteSpace(Selected.HardwareModel)
+            ? "—"
+            : Selected.HardwareModel;
 
     public double PositionLogRetentionDaysValue
     {
@@ -654,6 +725,13 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
             OnChanged(nameof(SelectedPosText));
             OnChanged(nameof(SelectedShortNameText));
             OnChanged(nameof(SelectedNodeNumText));
+            OnChanged(nameof(SelectedUserIdText));
+            OnChanged(nameof(SelectedPublicKeyText));
+            OnChanged(nameof(SelectedFirmwareVersionText));
+            OnChanged(nameof(SelectedRoleText));
+            OnChanged(nameof(SelectedUptimeText));
+            OnChanged(nameof(SelectedFirstHeardText));
+            OnChanged(nameof(SelectedHardwareModelText));
             OnChanged(nameof(HasSelectedPosition));
             OnChanged(nameof(SelectedTitle));
         }
@@ -2290,6 +2368,17 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
         var days = (int)Math.Floor(delta.TotalDays);
         return $"{days} day{(days == 1 ? "" : "s")} ago";
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero)
+            duration = TimeSpan.Zero;
+
+        if (duration.TotalDays >= 1)
+            return $"{(int)duration.TotalDays}d {duration:hh\\:mm\\:ss}";
+
+        return duration.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture);
     }
 
     private sealed record PositionLogKey(DateTime TimestampUtc, double Lat, double Lon);

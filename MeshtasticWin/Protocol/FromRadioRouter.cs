@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Globalization;
@@ -18,6 +19,29 @@ public static class FromRadioRouter
     private const int TraceRoutePortNum = 70; // TRACEROUTE_APP
     private const int MaxMessages = 500;
     private static readonly DateTime MinTelemetryTimestampUtc = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly Dictionary<string, string> HardwareModelFriendlyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["TRACKER_T1000_E"] = "Seeed Card Tracker T1000-E",
+        ["T_ECHO"] = "LilyGO T-Echo",
+        ["T_ECHO_PLUS"] = "LilyGO T-Echo Plus",
+        ["HELTEC_MESH_NODE_T114"] = "Heltec Mesh Node T114",
+        ["RAK4631"] = "RAK WisBlock 4631",
+        ["HELTEC_V3"] = "Heltec V3",
+        ["WIO_WM1110"] = "Seeed Wio WM1110 Tracker",
+        ["WISMESH_TAP"] = "RAK WisMesh Tap",
+        ["HELTEC_WIRELESS_TRACKER"] = "Heltec Wireless Tracker",
+        ["HELTEC_WIRELESS_TRACKER_V1_0"] = "Heltec Wireless Tracker V1.0",
+        ["WIO_E5"] = "Seeed Wio-E5"
+    };
+
+    private static readonly Dictionary<int, string> HardwareModelFriendlyNamesById = new()
+    {
+        [71] = "Seeed Card Tracker T1000-E",
+        [7] = "LilyGO T-Echo",
+        [69] = "Heltec Mesh Node T114",
+        [9] = "RAK WisBlock 4631",
+        [43] = "Heltec V3"
+    };
 
     public static bool TryHandle(byte[] payload, Action<Action> runOnUi, Action<string> logToUi, out string summary)
         => TryApplyFromRadio(payload, runOnUi, logToUi, out summary);
@@ -75,6 +99,13 @@ public static class FromRadioRouter
                 {
                     summary = "MyInfo";
                     runOnUi(() => ApplyMyInfoObject(variantObj));
+                    return true;
+                }
+
+                if (normalizedCase == "metadata" && variantObj is not null)
+                {
+                    summary = "DeviceMetadata";
+                    runOnUi(() => ApplyDeviceMetadataObject(variantObj));
                     return true;
                 }
 
@@ -306,6 +337,40 @@ public static class FromRadioRouter
 
             if (!string.IsNullOrWhiteSpace(shortName))
                 node.ShortName = shortName;
+
+            if (TryGetString(userObj, "Id", out var userId))
+                node.UserId = userId;
+
+            if (TryGetBytes(userObj, "PublicKey", out var publicKeyBytes))
+                node.PublicKey = Convert.ToHexString(publicKeyBytes);
+
+            if (TryGetObj(userObj, "Role", out var roleObj))
+            {
+                var role = ResolveRoleText(roleObj);
+                if (!string.IsNullOrWhiteSpace(role))
+                    node.Role = role;
+            }
+
+            if (TryGetObj(userObj, "HwModel", out var hwObj))
+            {
+                var hardwareModel = ResolveHardwareModelText(hwObj);
+                if (!string.IsNullOrWhiteSpace(hardwareModel))
+                    node.HardwareModel = hardwareModel;
+            }
+        }
+
+        if (TryGetUInt(nodeInfoObj, "LastHeard", out var lastHeardSeconds) && lastHeardSeconds > 0)
+        {
+            var lastHeardUtc = DateTimeOffset.FromUnixTimeSeconds(lastHeardSeconds).UtcDateTime;
+            node.SetFirstHeard(lastHeardUtc);
+        }
+
+        if (TryGetObj(nodeInfoObj, "DeviceMetrics", out var deviceMetricsObj) &&
+            deviceMetricsObj is not null &&
+            TryGetUInt(deviceMetricsObj, "UptimeSeconds", out var uptimeSeconds) &&
+            uptimeSeconds > 0)
+        {
+            node.UptimeSeconds = uptimeSeconds;
         }
 
         if (RadioClient.Instance.IsConnected)
@@ -341,6 +406,38 @@ public static class FromRadioRouter
         var node = EnsureNode(idHex, nodeNum);
         node.Touch();
         MeshtasticWin.AppState.SetConnectedNodeIdHex(idHex);
+    }
+
+    private static void ApplyDeviceMetadataObject(object metadataObj)
+    {
+        var connectedId = MeshtasticWin.AppState.ConnectedNodeIdHex;
+        var node = !string.IsNullOrWhiteSpace(connectedId)
+            ? MeshtasticWin.AppState.Nodes.FirstOrDefault(n =>
+                string.Equals(n.IdHex, connectedId, StringComparison.OrdinalIgnoreCase))
+            : null;
+
+        if (node is null && MeshtasticWin.AppState.Nodes.Count == 1)
+            node = MeshtasticWin.AppState.Nodes[0];
+
+        if (node is null)
+            return;
+
+        if (TryGetString(metadataObj, "FirmwareVersion", out var firmwareVersion))
+            node.FirmwareVersion = firmwareVersion;
+
+        if (TryGetObj(metadataObj, "Role", out var roleObj))
+        {
+            var role = ResolveRoleText(roleObj);
+            if (!string.IsNullOrWhiteSpace(role))
+                node.Role = role;
+        }
+
+        if (TryGetObj(metadataObj, "HwModel", out var hwObj))
+        {
+            var hardwareModel = ResolveHardwareModelText(hwObj);
+            if (!string.IsNullOrWhiteSpace(hardwareModel))
+                node.HardwareModel = hardwareModel;
+        }
     }
 
     private static NodeLive EnsureNode(string idHex, uint nodeNum)
@@ -641,6 +738,14 @@ public static class FromRadioRouter
             if (batteryLevel <= 100)
                 batteryPercent = batteryLevel;
             isPowered = batteryLevel > 100;
+        }
+
+        if (TryGetUInt(metricsObj, "UptimeSeconds", out var uptimeSeconds) && uptimeSeconds > 0)
+        {
+            var node = MeshtasticWin.AppState.Nodes.FirstOrDefault(n =>
+                string.Equals(n.IdHex, fromIdHex, StringComparison.OrdinalIgnoreCase));
+            if (node is not null)
+                node.UptimeSeconds = uptimeSeconds;
         }
 
         var sample = new DeviceMetricSample(tsUtc, voltage, channelUtil, airtime, isPowered)
@@ -949,6 +1054,45 @@ public static class FromRadioRouter
         return false;
     }
 
+    private static bool TryGetString(object obj, string propName, out string value)
+    {
+        value = "";
+        var p = obj.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
+        if (p is null) return false;
+
+        var v = p.GetValue(obj);
+        if (v is null) return false;
+
+        value = (v.ToString() ?? "").Trim();
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryGetBytes(object obj, string propName, out byte[] value)
+    {
+        value = Array.Empty<byte>();
+        var p = obj.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
+        if (p is null) return false;
+
+        var v = p.GetValue(obj);
+        if (v is null) return false;
+
+        if (v is byte[] bytes)
+        {
+            if (bytes.Length == 0) return false;
+            value = bytes;
+            return true;
+        }
+
+        var toByteArray = v.GetType().GetMethod("ToByteArray", BindingFlags.Public | BindingFlags.Instance, Type.DefaultBinder, Type.EmptyTypes, null);
+        if (toByteArray?.Invoke(v, Array.Empty<object>()) is byte[] converted && converted.Length > 0)
+        {
+            value = converted;
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool TryGetObj(object obj, string propName, out object? value)
     {
         value = null;
@@ -988,6 +1132,79 @@ public static class FromRadioRouter
         if (double.TryParse(v.ToString(), out var parsed)) { value = parsed; return true; }
 
         return false;
+    }
+
+    private static string ResolveRoleText(object? roleObj)
+    {
+        if (roleObj is null)
+            return "";
+
+        var text = (roleObj.ToString() ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var normalized = NormalizeToken(text);
+        if (normalized is "unset" or "unknown" or "none")
+            return "";
+
+        return HumanizeToken(text);
+    }
+
+    private static string ResolveHardwareModelText(object? hwObj)
+    {
+        if (hwObj is null)
+            return "";
+
+        if (hwObj is int i)
+            return ResolveHardwareModelFromNumeric(i);
+        if (hwObj is uint u)
+            return ResolveHardwareModelFromNumeric((int)u);
+        if (hwObj is long l && l <= int.MaxValue && l >= int.MinValue)
+            return ResolveHardwareModelFromNumeric((int)l);
+        if (hwObj is ulong ul && ul <= int.MaxValue)
+            return ResolveHardwareModelFromNumeric((int)ul);
+
+        var raw = (hwObj.ToString() ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+            return "";
+
+        if (HardwareModelFriendlyNames.TryGetValue(raw, out var mapped))
+            return mapped;
+
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric))
+            return ResolveHardwareModelFromNumeric(numeric);
+
+        var normalized = NormalizeToken(raw);
+        if (normalized is "unset" or "unknown" or "none")
+            return "";
+
+        return HumanizeToken(raw);
+    }
+
+    private static string ResolveHardwareModelFromNumeric(int numericValue)
+    {
+        if (numericValue <= 0)
+            return "";
+
+        if (HardwareModelFriendlyNamesById.TryGetValue(numericValue, out var mapped))
+            return mapped;
+
+        return numericValue.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string HumanizeToken(string raw)
+    {
+        var parts = raw.Split(new[] { '_', '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return raw;
+
+        return string.Join(" ", parts.Select(static part =>
+        {
+            if (part.Length <= 3 || part.All(char.IsDigit))
+                return part.ToUpperInvariant();
+
+            return char.ToUpperInvariant(part[0]) + part.Substring(1).ToLowerInvariant();
+        }));
     }
 
     private static string FormatProtoSingleLine(object obj)
