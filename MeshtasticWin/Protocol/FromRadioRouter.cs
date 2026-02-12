@@ -12,6 +12,7 @@ namespace MeshtasticWin.Protocol;
 public static class FromRadioRouter
 {
     private const int TextMessagePortNum = 1; // TEXT_MESSAGE_APP
+    private const int TextMessageCompressedPortNum = 7; // TEXT_MESSAGE_COMPRESSED_APP
     private const int PositionPortNum = 3;    // POSITION_APP
     private const int RoutingAppPortNum = 5;  // ROUTING_APP
     private const int DetectionSensorPortNum = 10; // DETECTION_SENSOR_APP
@@ -231,8 +232,8 @@ public static class FromRadioRouter
             return;
         }
 
-        // --- TEXT_MESSAGE_APP ---
-        if (portNum != TextMessagePortNum)
+        // --- TEXT_MESSAGE_APP / TEXT_MESSAGE_COMPRESSED_APP ---
+        if (portNum != TextMessagePortNum && portNum != TextMessageCompressedPortNum)
             return;
 
         if (fromNodeNum == 0)
@@ -242,17 +243,7 @@ public static class FromRadioRouter
         if (payloadBytes is null || payloadBytes.Length == 0)
             return;
 
-        string text;
-        try
-        {
-            text = System.Text.Encoding.UTF8.GetString(payloadBytes).Trim('\0', '\r', '\n');
-        }
-        catch
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(text))
+        if (!TryDecodeIncomingText(portNum, payloadBytes, out var text))
             return;
 
         if (packetId != 0)
@@ -262,7 +253,17 @@ public static class FromRadioRouter
             {
                 var existingTo = existingByPacket.ToIdHex ?? "";
                 if (string.Equals(existingTo, toIdHex, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (ShouldReplaceDegradedText(existingByPacket.Text, text))
+                        ReplaceIncomingMessageText(existingByPacket, text, fromNode.Name, toNodeNum, toIdHex);
                     return;
+                }
+
+                if (ShouldReplaceDegradedText(existingByPacket.Text, text))
+                {
+                    ReplaceIncomingMessageText(existingByPacket, text, fromNode.Name, toNodeNum, toIdHex);
+                    return;
+                }
 
                 if (string.Equals(existingTo, "0xffffffff", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(toIdHex, "0xffffffff", StringComparison.OrdinalIgnoreCase))
@@ -274,6 +275,10 @@ public static class FromRadioRouter
                     return;
                 }
             }
+        }
+        else if (TryReplaceRecentDegradedFallback(fromIdHex, toIdHex, text, fromNode.Name, toNodeNum))
+        {
+            return;
         }
 
         if (MeshtasticWin.AppState.Messages.Any(m =>
@@ -315,6 +320,204 @@ public static class FromRadioRouter
             MessageArchive.Append(msg, dmPeerIdHex: fromIdHex);
         else
             MessageArchive.Append(msg, channelName: "Primary");
+    }
+
+    private static bool TryDecodeIncomingText(int portNum, byte[] payloadBytes, out string text)
+    {
+        text = "";
+
+        if (portNum == TextMessageCompressedPortNum &&
+            TryDecodeCompressedTextPayload(payloadBytes, out var compressedText))
+        {
+            text = compressedText;
+            return true;
+        }
+
+        try
+        {
+            text = System.Text.Encoding.UTF8.GetString(payloadBytes).Trim('\0', '\r', '\n');
+        }
+        catch
+        {
+            text = "";
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(text) && LooksLikeHumanReadableText(text);
+    }
+
+    private static bool TryDecodeCompressedTextPayload(byte[] payloadBytes, out string text)
+    {
+        text = "";
+
+        var compressedType = FindTypeByName("Compressed");
+        if (compressedType is null)
+            return false;
+
+        var parser = compressedType.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        if (parser is null)
+            return false;
+
+        var parseFrom = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
+        if (parseFrom is null)
+            return false;
+
+        object? compressedObj;
+        try
+        {
+            compressedObj = parseFrom.Invoke(parser, new object[] { payloadBytes });
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (compressedObj is null)
+            return false;
+
+        if (TryGetObj(compressedObj, "Portnum", out var wrappedPortObj) &&
+            wrappedPortObj is not null)
+        {
+            var wrappedPortNum = ConvertToInt(wrappedPortObj);
+            if (wrappedPortNum != -1 && wrappedPortNum != TextMessagePortNum)
+                return false;
+        }
+
+        if (!TryGetBytes(compressedObj, "Data", out var wrappedData) || wrappedData.Length == 0)
+            return false;
+
+        try
+        {
+            text = System.Text.Encoding.UTF8.GetString(wrappedData).Trim('\0', '\r', '\n');
+        }
+        catch
+        {
+            text = "";
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(text) && LooksLikeHumanReadableText(text);
+    }
+
+    private static bool LooksLikeHumanReadableText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        foreach (var ch in text)
+        {
+            if (char.IsControl(ch) && !char.IsWhiteSpace(ch))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool ShouldReplaceDegradedText(string? existingText, string incomingText)
+    {
+        if (string.IsNullOrWhiteSpace(incomingText))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(existingText))
+            return true;
+
+        if (string.Equals(existingText, incomingText, StringComparison.Ordinal))
+            return false;
+
+        return LooksLikePlaceholderDebugText(existingText) && !LooksLikePlaceholderDebugText(incomingText);
+    }
+
+    private static bool LooksLikePlaceholderDebugText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        var hashCount = 0;
+        var longestHashRun = 0;
+        var currentRun = 0;
+        foreach (var ch in text)
+        {
+            if (ch == '#')
+            {
+                hashCount++;
+                currentRun++;
+                if (currentRun > longestHashRun)
+                    longestHashRun = currentRun;
+            }
+            else
+            {
+                currentRun = 0;
+            }
+        }
+
+        var ratio = text.Length == 0 ? 0.0 : (double)hashCount / text.Length;
+        return longestHashRun >= 3 || ratio >= 0.2;
+    }
+
+    private static void ReplaceIncomingMessageText(MessageLive existing, string text, string fromName, uint toNodeNum, string toIdHex)
+    {
+        var index = MeshtasticWin.AppState.Messages.IndexOf(existing);
+        if (index < 0)
+            return;
+
+        var toNode = MeshtasticWin.AppState.Nodes.FirstOrDefault(n => string.Equals(n.IdHex, toIdHex, StringComparison.OrdinalIgnoreCase));
+        var toName = toNodeNum == 0xFFFFFFFF ? "Primary" : (toNode?.Name ?? toIdHex);
+
+        var updated = new MessageLive
+        {
+            FromIdHex = existing.FromIdHex,
+            FromName = string.IsNullOrWhiteSpace(fromName) ? existing.FromName : fromName,
+            ToIdHex = toIdHex,
+            ToName = toName,
+            Text = text,
+            When = existing.When,
+            WhenUtc = existing.WhenUtc,
+            IsMine = false,
+            PacketId = existing.PacketId,
+            IsHeard = existing.IsHeard,
+            IsDelivered = existing.IsDelivered,
+            DmTargetNodeNum = existing.DmTargetNodeNum
+        };
+
+        MeshtasticWin.AppState.Messages[index] = updated;
+    }
+
+    private static bool TryReplaceRecentDegradedFallback(string fromIdHex, string toIdHex, string incomingText, string fromName, uint toNodeNum)
+    {
+        if (string.IsNullOrWhiteSpace(incomingText))
+            return false;
+
+        var nowUtc = DateTime.UtcNow;
+        var candidate = MeshtasticWin.AppState.Messages
+            .Where(m =>
+                !m.IsMine &&
+                m.PacketId == 0 &&
+                string.Equals(m.FromIdHex, fromIdHex, StringComparison.OrdinalIgnoreCase) &&
+                (nowUtc - m.WhenUtc).TotalSeconds <= 20 &&
+                IsPotentialSameDestination(m.ToIdHex ?? "", toIdHex))
+            .OrderBy(m => Math.Abs((nowUtc - m.WhenUtc).TotalSeconds))
+            .FirstOrDefault();
+
+        if (candidate is null)
+            return false;
+
+        if (string.Equals(candidate.Text, incomingText, StringComparison.Ordinal))
+            return true;
+
+        if (!ShouldReplaceDegradedText(candidate.Text, incomingText))
+            return false;
+
+        ReplaceIncomingMessageText(candidate, incomingText, fromName, toNodeNum, toIdHex);
+        return true;
+    }
+
+    private static bool IsPotentialSameDestination(string existingToIdHex, string incomingToIdHex)
+    {
+        if (string.Equals(existingToIdHex, incomingToIdHex, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return string.Equals(existingToIdHex, "0xffffffff", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(incomingToIdHex, "0xffffffff", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ApplyNodeInfoObject(object nodeInfoObj, Action<string> logToUi)
@@ -1012,15 +1215,17 @@ public static class FromRadioRouter
         var p = decodedObj.GetType().GetProperty("Portnum", BindingFlags.Public | BindingFlags.Instance);
         if (p is null) return -1;
 
-        var v = p.GetValue(decodedObj);
-        if (v is null) return -1;
+        return ConvertToInt(p.GetValue(decodedObj));
+    }
 
-        if (v.GetType().IsEnum)
-            return (int)v;
-
-        if (v is int i) return i;
-        if (v is uint u) return (int)u;
-
+    private static int ConvertToInt(object? value)
+    {
+        if (value is null) return -1;
+        if (value.GetType().IsEnum) return (int)value;
+        if (value is int i) return i;
+        if (value is uint u) return (int)u;
+        if (value is long l && l <= int.MaxValue && l >= int.MinValue) return (int)l;
+        if (value is ulong ul && ul <= int.MaxValue) return (int)ul;
         return -1;
     }
 

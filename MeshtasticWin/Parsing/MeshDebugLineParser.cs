@@ -168,6 +168,27 @@ public static class MeshDebugLineParser
                 }
             }
         }
+        else
+        {
+            var nowUtc = DateTime.UtcNow;
+            var recentForSender = AppState.Messages
+                .Where(x =>
+                    !x.IsMine &&
+                    x.PacketId == 0 &&
+                    string.Equals(x.FromIdHex, fromIdHex, StringComparison.OrdinalIgnoreCase) &&
+                    (nowUtc - x.WhenUtc).TotalSeconds <= 20)
+                .OrderBy(x => Math.Abs((nowUtc - x.WhenUtc).TotalSeconds))
+                .FirstOrDefault();
+
+            if (recentForSender is not null)
+            {
+                if (string.Equals(recentForSender.Text, text, StringComparison.Ordinal))
+                    return;
+
+                if (LooksLikePlaceholderDebugText(text) && !LooksLikePlaceholderDebugText(recentForSender.Text))
+                    return;
+            }
+        }
 
         if (AppState.Messages.Any(x =>
                 !x.IsMine &&
@@ -244,5 +265,33 @@ public static class MeshDebugLineParser
 
         foreach (var key in TextPacketMetaById.OrderBy(kvp => kvp.Value.SeenUtc).Take(TextPacketMetaById.Count - MaxPacketMetaEntries).Select(kvp => kvp.Key).ToList())
             TextPacketMetaById.Remove(key);
+    }
+
+    private static bool LooksLikePlaceholderDebugText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        var hashCount = 0;
+        var longestHashRun = 0;
+        var currentRun = 0;
+
+        foreach (var ch in text)
+        {
+            if (ch == '#')
+            {
+                hashCount++;
+                currentRun++;
+                if (currentRun > longestHashRun)
+                    longestHashRun = currentRun;
+            }
+            else
+            {
+                currentRun = 0;
+            }
+        }
+
+        var ratio = text.Length == 0 ? 0.0 : (double)hashCount / text.Length;
+        return longestHashRun >= 3 || ratio >= 0.2;
     }
 }
