@@ -6,7 +6,7 @@
     <ScrollViewer Padding="16">
         <StackPanel Spacing="12" MaxWidth="900">
             <TextBlock Text="About" FontSize="20" FontWeight="SemiBold"/>
-            <TextBlock Text="Version: 1.1" Opacity="0.9"/>
+            <TextBlock Text="{x:Bind VersionText, Mode=OneWay}" Opacity="0.9"/>
 
             <TextBlock TextWrapping="Wrap">
                 MeshtasticWin is a desktop app for connecting to Meshtastic radios and working with messages and nodes.

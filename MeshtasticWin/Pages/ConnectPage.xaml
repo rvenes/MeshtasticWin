@@ -10,7 +10,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Topp: tilkobling -->
+        <!-- Top: connection -->
         <Grid RowSpacing="8" ColumnSpacing="12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -72,6 +72,15 @@
                     Click="TcpConnect_Click" />
 
             <TextBlock Grid.Row="2" Grid.Column="0" Text="Bluetooth:" VerticalAlignment="Center" />
+            <ProgressRing Grid.Row="2"
+                          Grid.Column="2"
+                          x:Name="BluetoothScanRing"
+                          Width="18"
+                          Height="18"
+                          Margin="0,0,8,0"
+                          Visibility="Collapsed"
+                          IsActive="False"
+                          VerticalAlignment="Center"/>
             <ComboBox Grid.Row="2"
                       Grid.Column="1"
                       x:Name="BluetoothCombo"
@@ -79,17 +88,17 @@
                       DisplayMemberPath="DisplayName"
                       SelectionChanged="BluetoothCombo_SelectionChanged" />
             <Button Grid.Row="2"
-                    Grid.Column="2"
+                    Grid.Column="3"
                     x:Name="BluetoothConnectButton"
                     Content="Connect"
                     Click="BluetoothConnect_Click" />
             <Button Grid.Row="2"
-                    Grid.Column="3"
+                    Grid.Column="4"
                     x:Name="RefreshBluetoothButton"
                     Content="Refresh"
                     Click="RefreshBluetooth_Click" />
             <Button Grid.Row="2"
-                    Grid.Column="4"
+                    Grid.Column="5"
                     Content="Save debug log"
                     Click="SaveDebugLog_Click" />
 

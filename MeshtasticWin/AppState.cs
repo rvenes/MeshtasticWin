@@ -2,6 +2,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using MeshtasticWin.Models;
 using MeshtasticWin.Services;
 
@@ -9,6 +10,10 @@ namespace MeshtasticWin;
 
 public static class AppState
 {
+    private const string ShowPowerMetricsKey = "ShowPowerMetricsTab";
+    private const string ShowDetectionSensorKey = "ShowDetectionSensorLogTab";
+    private const string UnreadLastReadKey = "UnreadLastReadUtcByPeerJson";
+
     public static ObservableCollection<NodeLive> Nodes { get; } = new();
     public static ObservableCollection<MessageLive> Messages { get; } = new();
     public static event Action? SettingsChanged;
@@ -21,6 +26,7 @@ public static class AppState
         {
             if (_showPowerMetricsTab == value) return;
             _showPowerMetricsTab = value;
+            SettingsStore.SetBool(ShowPowerMetricsKey, value);
             SettingsChanged?.Invoke();
         }
     }
@@ -33,6 +39,7 @@ public static class AppState
         {
             if (_showDetectionSensorLogTab == value) return;
             _showDetectionSensorLogTab = value;
+            SettingsStore.SetBool(ShowDetectionSensorKey, value);
             SettingsChanged?.Invoke();
         }
     }
@@ -99,6 +106,7 @@ public static void MarkChatRead(string? peerIdHex)
         _lastReadUtcByPeer[key] = DateTime.UtcNow;
     }
 
+    PersistUnreadState();
     UnreadChanged?.Invoke(peerIdHex);
 }
 
@@ -118,6 +126,55 @@ public static void NotifyIncomingMessage(string? peerIdHex, DateTime whenUtc)
 
 private static string NormalizePeerKey(string? peerIdHex)
     => string.IsNullOrWhiteSpace(peerIdHex) ? "" : peerIdHex.Trim();
+
+    static AppState()
+    {
+        // Settings
+        _showPowerMetricsTab = SettingsStore.GetBool(ShowPowerMetricsKey) ?? false;
+        _showDetectionSensorLogTab = SettingsStore.GetBool(ShowDetectionSensorKey) ?? false;
+
+        // Unread state (optional persistence for chat read markers)
+        try
+        {
+            var json = SettingsStore.GetString(UnreadLastReadKey);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, long>>(json);
+                if (parsed is not null)
+                {
+                    lock (_unreadLock)
+                    {
+                        foreach (var (peer, ticks) in parsed)
+                        {
+                            if (string.IsNullOrWhiteSpace(peer) || ticks <= 0)
+                                continue;
+                            _lastReadUtcByPeer[peer] = new DateTime(ticks, DateTimeKind.Utc);
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore settings corruption; defaults apply.
+        }
+    }
+
+    private static void PersistUnreadState()
+    {
+        try
+        {
+            Dictionary<string, long> snapshot;
+            lock (_unreadLock)
+                snapshot = _lastReadUtcByPeer.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Ticks, StringComparer.OrdinalIgnoreCase);
+
+            SettingsStore.SetString(UnreadLastReadKey, JsonSerializer.Serialize(snapshot));
+        }
+        catch
+        {
+            // Ignore persistence errors.
+        }
+    }
 
     // null = Primary channel (broadcast), otherwise DM with this node id (IdHex, e.g. "0xd6c218df")
     public static string? ActiveChatPeerIdHex { get; private set; }

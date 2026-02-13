@@ -33,6 +33,39 @@
     }
 
     .leaflet-marker-pane .node-label { z-index: 1000; }
+
+    .overlap-cluster {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(123, 219, 84, 0.55);
+      border: 2px solid rgba(63, 145, 34, 0.9);
+      color: #1f2b1a;
+      font-family: Segoe UI, sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      text-shadow: none;
+      user-select: none;
+    }
+
+    .spider-label {
+      background: rgba(245,245,245,0.96);
+      color: #111;
+      border-radius: 10px;
+      padding: 2px 8px;
+      font-family: Segoe UI, sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      border: 1px solid rgba(0,0,0,0.25);
+      box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+      text-shadow: none;
+      user-select: none;
+    }
   </style>
 </head>
 <body>
@@ -93,6 +126,7 @@
 
     const markers = new Map(); // idHex -> L.Marker
     const labels  = new Map(); // idHex -> L.Marker (divIcon)
+    const nodeStates = new Map(); // idHex -> last node payload
     const tracks = new Map(); // nodeId -> { polyline, markersLayer, pointsCount }
     let routeForwardLayer = null;
     let routeBackLayer = null;
@@ -101,32 +135,165 @@
     let peekMarker = null;
     let peekTimer = null;
 
-    // --- anti-overlap jitter ---
-    const samePosBuckets = new Map(); // key -> [idHex...]
+    const clusterLayer = L.layerGroup().addTo(map);
+    const spiderLayer = L.layerGroup().addTo(map);
+    const overlapClusterMarkers = new Map(); // clusterKey -> L.Marker
+    let spiderActive = false;
+    let spiderSourceClusterKey = null;
 
-    function posKey(lat, lon){
-      return lat.toFixed(6) + "," + lon.toFixed(6);
+    function clearSpider(){
+      spiderLayer.clearLayers();
+      spiderActive = false;
+      spiderSourceClusterKey = null;
     }
 
-    function jitterIfStacked(idHex, lat, lon){
-      const key = posKey(lat, lon);
+    function getOverlapGroups(){
+      const buckets = new Map();
+      // Bucket by projected pixel in a 24px grid.
+      const grid = 24;
+      for (const [idHex, marker] of markers.entries()){
+        if (!map.hasLayer(marker)) continue;
+        const p = map.latLngToContainerPoint(marker.getLatLng());
+        const key = `${Math.round(p.x / grid)},${Math.round(p.y / grid)}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(idHex);
+      }
+      return buckets;
+    }
 
-      if (!samePosBuckets.has(key)) samePosBuckets.set(key, []);
-      const arr = samePosBuckets.get(key);
+    function setNodeVisibility(idHex, visible){
+      const marker = markers.get(idHex);
+      if (marker) marker.setOpacity(visible ? 1 : 0);
+      const label = labels.get(idHex);
+      if (label) label.setOpacity(visible ? 1 : 0);
+    }
 
-      let idx = arr.indexOf(idHex);
-      if (idx === -1) { arr.push(idHex); idx = arr.length - 1; }
+    function highlightSpiderSelected(){
+      for (const layer of spiderLayer.getLayers()){
+        if (!(layer instanceof L.Marker)) continue;
+        if (!layer.options || !layer.options._nodeIdHex) continue;
+        const el = layer.getElement();
+        if (!el) continue;
+        const isSelected = layer.options._nodeIdHex === selectedId;
+        el.style.filter = isSelected ? "drop-shadow(0 0 8px rgba(0,255,120,0.9))" : "";
+      }
+    }
 
-      if (arr.length <= 1) return [lat, lon];
+    function spiderfyCluster(clusterKey, memberIds, centerLatLng){
+      clearSpider();
+      spiderActive = true;
+      spiderSourceClusterKey = clusterKey;
 
-      const radiusPx = 18; // adjust if needed
-      const angle = (idx * 2 * Math.PI) / Math.max(arr.length, 6);
+      const count = memberIds.length;
+      const centerPoint = map.latLngToContainerPoint(centerLatLng);
+      const radius = Math.max(34, Math.min(72, 18 + count * 5));
+      const startAngle = -Math.PI / 2;
 
-      const p = map.latLngToContainerPoint([lat, lon]);
-      const p2 = L.point(p.x + Math.cos(angle) * radiusPx, p.y + Math.sin(angle) * radiusPx);
-      const ll2 = map.containerPointToLatLng(p2);
+      for (let i = 0; i < count; i++){
+        const idHex = memberIds[i];
+        const angle = startAngle + (2 * Math.PI * i / count);
+        const endPoint = L.point(
+          centerPoint.x + Math.cos(angle) * radius,
+          centerPoint.y + Math.sin(angle) * radius
+        );
+        const endLatLng = map.containerPointToLatLng(endPoint);
 
-      return [ll2.lat, ll2.lng];
+        // Leg
+        L.polyline([centerLatLng, endLatLng], {
+          color: "rgba(45,45,45,0.75)",
+          weight: 2,
+          opacity: 0.9
+        }).addTo(spiderLayer);
+
+        const node = nodeStates.get(idHex);
+        const marker = L.marker(endLatLng, {
+          icon: pinIcon,
+          title: (node?.name || node?.shortId || idHex),
+          _nodeIdHex: idHex
+        });
+        marker.on('click', () => {
+          selectedId = idHex;
+          post({ type:"selectNode", idHex });
+          highlight();
+          highlightSpiderSelected();
+          const m = markers.get(idHex);
+          if (m){
+            closeAllTooltips();
+            m.openTooltip();
+          }
+        });
+        marker.addTo(spiderLayer);
+
+        const text = node ? labelText(node) : idHex;
+        const labelIcon = L.divIcon({ className:'', html: `<div class="spider-label">${escapeHtml(text)}</div>`, iconSize: null });
+        const lm = L.marker(endLatLng, { icon: labelIcon, interactive:false, zIndexOffset: 1000 });
+        lm.addTo(spiderLayer);
+        requestAnimationFrame(() => {
+          const el = lm.getElement();
+          if (el) el.style.transform = (el.style.transform || "") + " translate(14px, -36px)";
+        });
+      }
+
+      highlightSpiderSelected();
+    }
+
+    function renderOverlapClusters(){
+      clusterLayer.clearLayers();
+      overlapClusterMarkers.clear();
+
+      const overlapGroups = getOverlapGroups();
+      const hiddenNodeIds = new Set();
+
+      for (const [key, ids] of overlapGroups.entries()){
+        if (ids.length <= 1) continue;
+
+        const clusterBounds = [];
+        for (const idHex of ids){
+          const marker = markers.get(idHex);
+          if (marker) clusterBounds.push(marker.getLatLng());
+          hiddenNodeIds.add(idHex);
+        }
+
+        if (clusterBounds.length === 0) continue;
+        const centerLatLng = L.latLngBounds(clusterBounds).getCenter();
+
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="overlap-cluster">${ids.length}</div>`,
+          iconSize: [44, 44],
+          iconAnchor: [22, 22]
+        });
+
+        const clusterMarker = L.marker(centerLatLng, { icon, title: `${ids.length} overlapping nodes` });
+        clusterMarker.on('click', () => {
+          spiderfyCluster(key, ids, centerLatLng);
+        });
+        clusterMarker.addTo(clusterLayer);
+        overlapClusterMarkers.set(key, clusterMarker);
+      }
+
+      for (const idHex of markers.keys()){
+        const visible = !hiddenNodeIds.has(idHex);
+        setNodeVisibility(idHex, visible);
+      }
+
+      if (spiderActive){
+        // Rebuild spider after zoom/pan so leg geometry follows map transform.
+        if (spiderSourceClusterKey && overlapGroups.has(spiderSourceClusterKey)){
+          const ids = overlapGroups.get(spiderSourceClusterKey);
+          const visibleCenters = ids
+            .map(idHex => markers.get(idHex))
+            .filter(Boolean)
+            .map(m => m.getLatLng());
+          if (visibleCenters.length >= 2){
+            spiderfyCluster(spiderSourceClusterKey, ids, L.latLngBounds(visibleCenters).getCenter());
+          } else {
+            clearSpider();
+          }
+        } else {
+          clearSpider();
+        }
+      }
     }
 
     function labelText(n){
@@ -159,15 +326,13 @@
     };
 
     function setNodes(nodes){
-      samePosBuckets.clear();
-
       const alive = new Set();
 
       for (const n of nodes){
         alive.add(n.idHex);
+        nodeStates.set(n.idHex, n);
         if (!n.hasPos) continue;
-
-        const ll = jitterIfStacked(n.idHex, n.lat, n.lon);
+        const ll = [n.lat, n.lon];
 
         // Pin marker
         if (!markers.has(n.idHex)){
@@ -208,9 +373,11 @@
         if (!alive.has(id)){ map.removeLayer(m); markers.delete(id); }
       }
       for (const [id,lm] of labels.entries()){
-        if (!alive.has(id)){ map.removeLayer(lm); labels.delete(id); }
+        if (!alive.has(id)){ map.removeLayer(lm); labels.delete(id); nodeStates.delete(id); }
       }
 
+      clearSpider();
+      renderOverlapClusters();
       highlight();
     }
 
@@ -225,6 +392,8 @@
         if (!el) continue;
         el.style.opacity = (selectedId && id !== selectedId) ? "0.9" : "1";
       }
+
+      highlightSpiderSelected();
     }
 
     function fitAll(){
@@ -241,6 +410,8 @@
       closeAllTooltips();
       map.setView(m.getLatLng(), Math.max(map.getZoom(), 14));
       m.openTooltip();
+      clearSpider();
+      renderOverlapClusters();
     }
 
     function showPositionPeek(lat, lon){
@@ -446,6 +617,14 @@
         if (msg.type === "routeClear") { mwRouteClear(); return; }
       });
     }
+
+    map.on('zoomend moveend', () => {
+      renderOverlapClusters();
+    });
+    map.on('click', () => {
+      clearSpider();
+      renderOverlapClusters();
+    });
 
     post({ type:"ready" });
   }

@@ -94,7 +94,6 @@
                                 <RichTextBlock IsTextSelectionEnabled="True"
                                                Grid.Column="2"
                                                TextWrapping="Wrap"
-                                               Loaded="MessageText_Loaded"
                                                DataContextChanged="MessageText_DataContextChanged"
                                                Tag="{x:Bind Text, Mode=OneWay}">
                                     <RichTextBlock.ContextFlyout>
@@ -153,6 +152,7 @@
                                VerticalAlignment="Center"/>
 
 	                <Button Grid.Column="6"
+                            x:Name="SendButton"
 	                        Content="Send"
 	                        Click="Send_Click"/>
 	            </Grid>

@@ -23,6 +23,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
 {
     private const int MaxMessageBytes = 200;
     private bool _isAdjustingInputText;
+    private bool _inputWasTruncated;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ChatListItemVm> ChatListItems { get; } = new();
@@ -124,6 +125,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         ApplyMessageVisibilityToAll();
         SyncListToActiveChat();
         UpdateMessageLengthCounter();
+        UpdateSendButtonState();
         OnChanged(nameof(ActiveChatTitle));
     }
 
@@ -643,12 +645,23 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
     {
         EnforceMessageByteLimit();
         UpdateMessageLengthCounter();
+        UpdateSendButtonState();
     }
 
     private void UpdateMessageLengthCounter()
     {
         var byteCount = GetUtf8ByteCount(InputBox.Text ?? "");
-        MessageLengthText.Text = $"{byteCount}/{MaxMessageBytes} bytes";
+        var remaining = Math.Max(0, MaxMessageBytes - byteCount);
+        var suffix = _inputWasTruncated ? " (truncated)" : "";
+        MessageLengthText.Text = $"{byteCount}/{MaxMessageBytes} bytes ({remaining} left){suffix}";
+        _inputWasTruncated = false;
+    }
+
+    private void UpdateSendButtonState()
+    {
+        var text = InputBox.Text ?? "";
+        var canSend = !string.IsNullOrWhiteSpace(text.Trim());
+        SendButton.IsEnabled = canSend;
     }
 
     private void InsertEmojiMenuItem_Click(object sender, RoutedEventArgs e)
@@ -710,6 +723,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             return;
 
         InputBox.Text = "";
+        UpdateSendButtonState();
 
         var peer = MeshtasticWin.AppState.ActiveChatPeerIdHex;
 
@@ -737,8 +751,28 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
             toName = node?.Name ?? peer;
         }
 
-        // Send and capture packetId for ACK matching.
-        var packetId = await RadioClient.Instance.SendTextAsync(text, toNodeNum);
+        uint packetId;
+        try
+        {
+            // Send and capture packetId for ACK matching.
+            packetId = await RadioClient.Instance.SendTextAsync(text, toNodeNum);
+        }
+        catch (Exception ex)
+        {
+            // Restore input so the user can retry/edit.
+            InputBox.Text = text;
+            UpdateSendButtonState();
+
+            var dialog = new ContentDialog
+            {
+                Title = "Send failed",
+                Content = ex.Message,
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot
+            };
+            _ = await dialog.ShowAsync();
+            return;
+        }
 
         // Local message; FromRadioRouter updates status ticks later.
         var local = MessageLive.CreateOutgoing(
@@ -772,6 +806,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         _isAdjustingInputText = true;
         try
         {
+            _inputWasTruncated = true;
             InputBox.Text = limited;
             InputBox.SelectionStart = Math.Min(selectionStart, limited.Length);
             InputBox.SelectionLength = 0;
@@ -819,12 +854,6 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         return sb.ToString();
     }
 
-    private void MessageText_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is RichTextBlock textBlock)
-            UpdateMessageText(textBlock);
-    }
-
     private void MessageText_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
     {
         if (sender is RichTextBlock textBlock)
@@ -839,6 +868,14 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         var paragraph = new Paragraph();
         if (string.IsNullOrEmpty(text))
         {
+            textBlock.Blocks.Add(paragraph);
+            return;
+        }
+
+        // Fast path: skip regex if there's clearly no URL.
+        if (text.IndexOf("http", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            paragraph.Inlines.Add(new Run { Text = text });
             textBlock.Blocks.Add(paragraph);
             return;
         }
@@ -901,9 +938,7 @@ public sealed partial class MessagesPage : Page, INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(fullText))
             return;
 
-        var package = new DataPackage();
-        package.SetText(fullText);
-        Clipboard.SetContent(package);
+        _ = ClipboardUtil.TrySetText(fullText);
     }
 
 }

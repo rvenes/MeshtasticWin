@@ -8,10 +8,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
 using Windows.Storage;
@@ -24,12 +22,11 @@ public sealed partial class ConnectPage : Page
     private const string TcpHostSettingKey = "LastTcpHost";
     private const string TcpPortSettingKey = "LastTcpPort";
     private const string BluetoothDeviceIdSettingKey = "LastBluetoothDeviceId";
-    private static readonly object _fallbackSettingsLock = new();
-    private static Dictionary<string, string>? _fallbackSettings;
 
     private bool _handlersHooked;
     private bool _hasPorts;
     private bool _hasBluetoothDevices;
+    private bool _isBluetoothScanning;
 
     public ConnectPage()
     {
@@ -37,8 +34,8 @@ public sealed partial class ConnectPage : Page
 
         LogList.ItemsSource = RadioClient.Instance.LogLines;
 
-        TcpHostBox.Text = LoadSetting(TcpHostSettingKey) ?? "127.0.0.1";
-        TcpPortBox.Text = LoadSetting(TcpPortSettingKey) ?? "4403";
+        TcpHostBox.Text = SettingsStore.GetString(TcpHostSettingKey) ?? "127.0.0.1";
+        TcpPortBox.Text = SettingsStore.GetString(TcpPortSettingKey) ?? "4403";
 
         HookClientEvents();
         UpdateUiFromClient();
@@ -123,8 +120,12 @@ public sealed partial class ConnectPage : Page
 
         ConnectButton.IsEnabled = !client.IsConnected && _hasPorts;
         TcpConnectButton.IsEnabled = !client.IsConnected;
-        BluetoothConnectButton.IsEnabled = !client.IsConnected && _hasBluetoothDevices;
+        BluetoothConnectButton.IsEnabled = !client.IsConnected && _hasBluetoothDevices && !_isBluetoothScanning;
         DisconnectButton.IsEnabled = client.IsConnected;
+
+        RefreshBluetoothButton.IsEnabled = !_isBluetoothScanning;
+        BluetoothScanRing.IsActive = _isBluetoothScanning;
+        BluetoothScanRing.Visibility = _isBluetoothScanning ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -148,7 +149,7 @@ public sealed partial class ConnectPage : Page
 
             await RadioClient.Instance.ConnectAsync(port, RunOnUi(), LogToUi);
 
-            SaveSetting(PortSettingKey, port);
+            SettingsStore.SetString(PortSettingKey, port);
             UpdateUiFromClient();
         }
         catch (Exception ex)
@@ -187,8 +188,8 @@ public sealed partial class ConnectPage : Page
 
             await RadioClient.Instance.ConnectTcpAsync(host, port, RunOnUi(), LogToUi);
 
-            SaveSetting(TcpHostSettingKey, host);
-            SaveSetting(TcpPortSettingKey, port.ToString());
+            SettingsStore.SetString(TcpHostSettingKey, host);
+            SettingsStore.SetString(TcpPortSettingKey, port.ToString());
             UpdateUiFromClient();
         }
         catch (Exception ex)
@@ -220,7 +221,7 @@ public sealed partial class ConnectPage : Page
             AddLogLineUi($"Connecting to Bluetooth {option.DisplayName}...");
             await RadioClient.Instance.ConnectBluetoothAsync(option.DeviceId, option.DisplayName, RunOnUi(), LogToUi);
 
-            SaveSetting(BluetoothDeviceIdSettingKey, option.DeviceId);
+            SettingsStore.SetString(BluetoothDeviceIdSettingKey, option.DeviceId);
             UpdateUiFromClient();
         }
         catch (Exception ex)
@@ -246,13 +247,13 @@ public sealed partial class ConnectPage : Page
     private void PortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (PortCombo.SelectedItem is string port)
-            SaveSetting(PortSettingKey, port);
+            SettingsStore.SetString(PortSettingKey, port);
     }
 
     private void BluetoothCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (BluetoothCombo.SelectedItem is BluetoothDeviceOption option)
-            SaveSetting(BluetoothDeviceIdSettingKey, option.DeviceId);
+            SettingsStore.SetString(BluetoothDeviceIdSettingKey, option.DeviceId);
     }
 
     private void RefreshPorts()
@@ -286,7 +287,7 @@ public sealed partial class ConnectPage : Page
         PortCombo.IsEnabled = true;
         _hasPorts = true;
 
-        var savedPort = LoadSetting(PortSettingKey);
+        var savedPort = SettingsStore.GetString(PortSettingKey);
         var initialPort = !string.IsNullOrWhiteSpace(savedPort) && sorted.Contains(savedPort, StringComparer.OrdinalIgnoreCase)
             ? sorted.First(p => string.Equals(p, savedPort, StringComparison.OrdinalIgnoreCase))
             : sorted[0];
@@ -298,6 +299,7 @@ public sealed partial class ConnectPage : Page
     {
         try
         {
+            _isBluetoothScanning = true;
             BluetoothCombo.Items.Clear();
             BluetoothCombo.Items.Add(new ComboBoxItem
             {
@@ -339,7 +341,7 @@ public sealed partial class ConnectPage : Page
             BluetoothCombo.IsEnabled = true;
             _hasBluetoothDevices = true;
 
-            var savedDeviceId = LoadSetting(BluetoothDeviceIdSettingKey);
+            var savedDeviceId = SettingsStore.GetString(BluetoothDeviceIdSettingKey);
             var initial = !string.IsNullOrWhiteSpace(savedDeviceId)
                 ? options.FirstOrDefault(o => string.Equals(o.DeviceId, savedDeviceId, StringComparison.OrdinalIgnoreCase)) ?? options[0]
                 : options[0];
@@ -359,6 +361,11 @@ public sealed partial class ConnectPage : Page
             BluetoothCombo.IsEnabled = false;
             _hasBluetoothDevices = false;
             AddLogLineUi($"Bluetooth scan failed: {ex.Message}");
+            UpdateUiFromClient();
+        }
+        finally
+        {
+            _isBluetoothScanning = false;
             UpdateUiFromClient();
         }
     }
@@ -473,94 +480,6 @@ public sealed partial class ConnectPage : Page
         return (1, int.MaxValue, port ?? "");
     }
 
-    private static string? LoadSetting(string key)
-    {
-        try
-        {
-            var settings = ApplicationData.Current.LocalSettings.Values;
-            return settings.TryGetValue(key, out var value) ? value as string : null;
-        }
-        catch
-        {
-            return LoadFallbackSetting(key);
-        }
-    }
-
-    private static void SaveSetting(string key, string value)
-    {
-        try
-        {
-            ApplicationData.Current.LocalSettings.Values[key] = value;
-            return;
-        }
-        catch
-        {
-            SaveFallbackSetting(key, value);
-        }
-    }
-
-    private static string? LoadFallbackSetting(string key)
-    {
-        lock (_fallbackSettingsLock)
-        {
-            EnsureFallbackSettingsLoaded();
-            return _fallbackSettings is not null && _fallbackSettings.TryGetValue(key, out var value) ? value : null;
-        }
-    }
-
-    private static void SaveFallbackSetting(string key, string value)
-    {
-        lock (_fallbackSettingsLock)
-        {
-            EnsureFallbackSettingsLoaded();
-            _fallbackSettings ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _fallbackSettings[key] = value;
-            PersistFallbackSettings();
-        }
-    }
-
-    private static void EnsureFallbackSettingsLoaded()
-    {
-        if (_fallbackSettings is not null)
-            return;
-
-        var path = Path.Combine(AppDataPaths.BasePath, "connect_settings.json");
-        if (!File.Exists(path))
-        {
-            _fallbackSettings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            return;
-        }
-
-        try
-        {
-            var json = File.ReadAllText(path);
-            _fallbackSettings = JsonSerializer.Deserialize<Dictionary<string, string>>(json)
-                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            _fallbackSettings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
-    private static void PersistFallbackSettings()
-    {
-        try
-        {
-            var path = Path.Combine(AppDataPaths.BasePath, "connect_settings.json");
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(dir))
-                Directory.CreateDirectory(dir);
-
-            var json = JsonSerializer.Serialize(_fallbackSettings ?? new Dictionary<string, string>());
-            File.WriteAllText(path, json);
-        }
-        catch
-        {
-            // Ignore settings persistence errors in unpackaged mode.
-        }
-    }
-
     private async void Disconnect_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -580,7 +499,7 @@ public sealed partial class ConnectPage : Page
     {
         try
         {
-            var debugDir = Path.Combine(AppDataPaths.BasePath, "Debuglogg", AppDataPaths.ActiveNodeScope);
+            var debugDir = Path.Combine(AppDataPaths.DebugLogsRootPath, AppDataPaths.ActiveNodeScope);
             Directory.CreateDirectory(debugDir);
 
             var fileName = $"connect_debug_{DateTime.Now:yyyyMMdd_HHmmss}.log";
@@ -627,10 +546,7 @@ public sealed partial class ConnectPage : Page
 
     private static void CopyTextToClipboard(string text)
     {
-        var data = new DataPackage();
-        data.SetText(text);
-        Clipboard.SetContent(data);
-        Clipboard.Flush();
+        _ = ClipboardUtil.TrySetText(text, flush: true);
     }
 
     private sealed record BluetoothDeviceOption(string DeviceId, string DisplayName);

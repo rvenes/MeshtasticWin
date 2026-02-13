@@ -3,16 +3,141 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Canvas x:Name="ChartCanvas"
-            Background="{ThemeResource CardBackgroundFillColorDefault}">
-        <Polyline x:Name="BatteryLine"
-                  Stroke="#FF4CAF50"
-                  StrokeThickness="2"/>
-        <Polyline x:Name="ChannelLine"
-                  Stroke="#FF2196F3"
-                  StrokeThickness="2"/>
-        <Polyline x:Name="AirtimeLine"
-                  Stroke="#FFFF9800"
-                  StrokeThickness="2"/>
-    </Canvas>
+    <Grid RowDefinitions="*,Auto">
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto">
+            <Grid Margin="0,6,8,6"
+                  RowDefinitions="Auto,*,Auto"
+                  MinWidth="52">
+                <TextBlock x:Name="BatteryAxisTopText"
+                           Text="—"
+                           Foreground="#FF4CAF50"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Right"/>
+                <TextBlock x:Name="BatteryAxisMidText"
+                           Grid.Row="1"
+                           Text="—"
+                           Foreground="#FF4CAF50"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="BatteryAxisBottomText"
+                           Grid.Row="2"
+                           Text="—"
+                           Foreground="#FF4CAF50"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Grid.Column="1"
+                  x:Name="PlotHost"
+                  Background="{ThemeResource CardBackgroundFillColorDefault}">
+                <Canvas x:Name="GridCanvas"
+                        IsHitTestVisible="False"/>
+                <Canvas x:Name="ChartCanvas"
+                        Background="Transparent">
+                    <Polyline x:Name="BatteryLine"
+                              Stroke="#FF4CAF50"
+                              StrokeThickness="2.2"
+                              StrokeLineJoin="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"/>
+                    <Polyline x:Name="ChannelLine"
+                              Stroke="#FF2196F3"
+                              StrokeThickness="2"
+                              StrokeLineJoin="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"/>
+                    <Polyline x:Name="AirtimeLine"
+                              Stroke="#FFFF9800"
+                              StrokeThickness="2"
+                              StrokeLineJoin="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"/>
+                </Canvas>
+            </Grid>
+
+            <Grid Grid.Column="2"
+                  Margin="8,6,0,6"
+                  RowDefinitions="Auto,*,Auto"
+                  MinWidth="48">
+                <TextBlock x:Name="ChannelAxisTopText"
+                           Text="—"
+                           Foreground="#FF2196F3"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Left"/>
+                <TextBlock x:Name="ChannelAxisMidText"
+                           Grid.Row="1"
+                           Text="—"
+                           Foreground="#FF2196F3"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="ChannelAxisBottomText"
+                           Grid.Row="2"
+                           Text="—"
+                           Foreground="#FF2196F3"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Left"/>
+            </Grid>
+
+            <Grid Grid.Column="3"
+                  Margin="4,6,0,6"
+                  RowDefinitions="Auto,*,Auto"
+                  MinWidth="48">
+                <TextBlock x:Name="AirtimeAxisTopText"
+                           Text="—"
+                           Foreground="#FFFF9800"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Left"/>
+                <TextBlock x:Name="AirtimeAxisMidText"
+                           Grid.Row="1"
+                           Text="—"
+                           Foreground="#FFFF9800"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="AirtimeAxisBottomText"
+                           Grid.Row="2"
+                           Text="—"
+                           Foreground="#FFFF9800"
+                           FontSize="10"
+                           FontFamily="Consolas"
+                           HorizontalAlignment="Left"/>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="1"
+              Margin="60,6,98,0"
+              ColumnDefinitions="Auto,*,Auto"
+              MinHeight="20">
+            <TextBlock x:Name="AxisStartText"
+                       Text="—"
+                       Opacity="0.8"
+                       FontSize="11"
+                       FontFamily="Consolas"
+                       HorizontalAlignment="Left"/>
+            <TextBlock x:Name="AxisMidText"
+                       Grid.Column="1"
+                       Text="—"
+                       Opacity="0.75"
+                       FontSize="11"
+                       FontFamily="Consolas"
+                       HorizontalAlignment="Center"/>
+            <TextBlock x:Name="AxisEndText"
+                       Grid.Column="2"
+                       Text="—"
+                       Opacity="0.8"
+                       FontSize="11"
+                       FontFamily="Consolas"
+                       HorizontalAlignment="Right"/>
+        </Grid>
+    </Grid>
 </UserControl>

@@ -534,7 +534,7 @@
                                 </StackPanel>
                                 <localcontrols:EnvironmentMetricsGraph Grid.Row="1"
                                                                        x:Name="EnvironmentMetricsGraph"
-                                                                       Height="180"/>
+                                                                       Height="220"/>
                             </Grid>
                             <ListView Grid.Row="2"
                                       x:Name="EnvironmentMetricsLogList"

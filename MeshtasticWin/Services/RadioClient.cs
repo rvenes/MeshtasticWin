@@ -314,8 +314,7 @@ public sealed class RadioClient
 
     private static string BuildScopedLiveLogPath()
     {
-        var liveDebugLogRootDirectory = Path.Combine(AppDataPaths.BasePath, "Debuglogg");
-        var scopedDebugDir = Path.Combine(liveDebugLogRootDirectory, AppDataPaths.ActiveNodeScope);
+        var scopedDebugDir = Path.Combine(AppDataPaths.DebugLogsRootPath, AppDataPaths.ActiveNodeScope);
         Directory.CreateDirectory(scopedDebugDir);
         return Path.Combine(scopedDebugDir, $"connect_live_{DateTime.Now:yyyyMMdd_HHmmss}.log");
     }

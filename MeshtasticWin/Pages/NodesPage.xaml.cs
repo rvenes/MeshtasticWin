@@ -80,6 +80,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
     private int _positionLogRetentionDays = 7;
     private readonly ObservableCollection<DeviceMetricSample> _deviceMetricSamples = new();
     private readonly ObservableCollection<EnvironmentMetricSample> _environmentMetricSamples = new();
+    private bool _suspendMetricGraphRefresh;
     public ObservableCollection<DeviceMetricSample> DeviceMetricSamples => _deviceMetricSamples;
     public ObservableCollection<EnvironmentMetricSample> EnvironmentMetricSamples => _environmentMetricSamples;
     public ObservableCollection<TraceRouteLogEntry> TraceRouteLogEntries { get; } = new();
@@ -818,12 +819,7 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private static void CopyTextToClipboard(string? text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return;
-
-        var data = new DataPackage();
-        data.SetText(text);
-        Clipboard.SetContent(data);
+        _ = ClipboardUtil.TrySetText(text);
     }
 
     private static bool IsOnlineByRssi(NodeLive n)
@@ -1284,12 +1280,18 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
 
     private void DeviceMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (_suspendMetricGraphRefresh)
+            return;
+
         OnChanged(nameof(DeviceMetricsCountText));
         DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
     }
 
     private void EnvironmentMetricSamples_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (_suspendMetricGraphRefresh)
+            return;
+
         OnChanged(nameof(EnvironmentMetricsCountText));
         EnvironmentMetricsGraph.SetSamples(_environmentMetricSamples);
     }
@@ -1327,10 +1329,19 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var priorOffset = viewer?.VerticalOffset ?? 0;
 
         var samples = DeviceMetricsLogService.GetSamples(Selected.IdHex, maxSamples: 2000);
-        _deviceMetricSamples.Clear();
-        foreach (var sample in samples)
-            _deviceMetricSamples.Add(sample);
+        _suspendMetricGraphRefresh = true;
+        try
+        {
+            _deviceMetricSamples.Clear();
+            foreach (var sample in samples)
+                _deviceMetricSamples.Add(sample);
+        }
+        finally
+        {
+            _suspendMetricGraphRefresh = false;
+        }
 
+        OnChanged(nameof(DeviceMetricsCountText));
         DeviceMetricsGraph.SetSamples(_deviceMetricSamples);
 
         if (viewer is not null)
@@ -1350,10 +1361,19 @@ public sealed partial class NodesPage : Page, INotifyPropertyChanged
         var priorOffset = viewer?.VerticalOffset ?? 0;
 
         var samples = ReadEnvironmentMetricSamples();
-        _environmentMetricSamples.Clear();
-        foreach (var sample in samples)
-            _environmentMetricSamples.Add(sample);
+        _suspendMetricGraphRefresh = true;
+        try
+        {
+            _environmentMetricSamples.Clear();
+            foreach (var sample in samples)
+                _environmentMetricSamples.Add(sample);
+        }
+        finally
+        {
+            _suspendMetricGraphRefresh = false;
+        }
 
+        OnChanged(nameof(EnvironmentMetricsCountText));
         EnvironmentMetricsGraph.SetSamples(_environmentMetricSamples);
         EnvironmentMetricsLogText = BuildEnvironmentMetricsDisplayText(_environmentMetricSamples);
 

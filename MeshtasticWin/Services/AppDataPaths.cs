@@ -20,6 +20,28 @@ public static class AppDataPaths
     // Root for node-scoped logging. Each connected node gets its own subfolder.
     public static string LogsRootPath => Path.Combine(BasePath, "NodeLogs");
 
+    // Preferred live debug log folder name (English), with legacy fallback.
+    public static string DebugLogsRootPath
+    {
+        get
+        {
+            var preferred = Path.Combine(BasePath, "DebugLogs");
+            var legacy = Path.Combine(BasePath, "Debuglogg");
+
+            try
+            {
+                if (Directory.Exists(legacy) && !Directory.Exists(preferred))
+                    return legacy;
+            }
+            catch
+            {
+                // Ignore probing failures.
+            }
+
+            return preferred;
+        }
+    }
+
     public static string ActiveNodeScope
     {
         get
@@ -50,6 +72,7 @@ public static class AppDataPaths
     {
         EnsurePath(BasePath);
         EnsurePath(LogsRootPath);
+        EnsurePath(DebugLogsRootPath);
         EnsurePath(Path.Combine(LogsRootPath, ActiveNodeScope));
         EnsurePath(LogsPath);
         EnsurePath(TraceroutePath);
