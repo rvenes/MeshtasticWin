@@ -16,6 +16,6 @@
         <TextBlock Grid.Row="4"
                    TextWrapping="Wrap"
                    Opacity="0.85"
-                   Text="More settings will be added in future versions of the program."/>
+                   Text="More settings and customization options will be added in future versions."/>
     </Grid>
 </Page>
